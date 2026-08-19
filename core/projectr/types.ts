@@ -1,11 +1,17 @@
 export type SourceKind = "youtube";
 
-export interface SourceVideo {
+export interface SourceMetadata {
+  title?: string;
+  creatorName?: string;
+  durationSeconds?: number;
+  thumbnailUrl?: string;
+  publishedAt?: string;
+}
+
+export interface SourceVideo extends SourceMetadata {
   kind: SourceKind;
   sourceId: string;
   canonicalUrl: string;
-  title?: string;
-  durationSeconds?: number;
 }
 
 export interface TranscriptCue {

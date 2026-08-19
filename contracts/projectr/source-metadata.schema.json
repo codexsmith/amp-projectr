@@ -1,14 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://boundaryfirstlabs.org/contracts/projectr/source-video.schema.json",
-  "title": "Projectr SourceVideo",
+  "$id": "https://boundaryfirstlabs.org/contracts/projectr/source-metadata.schema.json",
+  "title": "Projectr SourceMetadata",
   "type": "object",
   "additionalProperties": false,
-  "required": ["kind", "sourceId", "canonicalUrl"],
   "properties": {
-    "kind": { "const": "youtube" },
-    "sourceId": { "type": "string", "minLength": 1 },
-    "canonicalUrl": { "type": "string", "format": "uri" },
     "title": { "type": "string" },
     "creatorName": { "type": "string" },
     "durationSeconds": { "type": "number", "minimum": 0 },

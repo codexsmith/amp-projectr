@@ -20,7 +20,7 @@ Adapters: Next.js, transcript source, persistence, AI, search index, etc.
 
 ## Current core
 
-`core/projectr` contains plain TypeScript with no imports from Next.js, React, Amplify, AWS, a database client, or an AI SDK.
+`core/projectr` contains plain TypeScript with no imports from Next.js, React, Amplify, AWS, a database client, browser storage, or an AI SDK.
 
 The canonical cross-language shapes live under `contracts/projectr` as JSON Schema. TypeScript is the first executable implementation of those contracts, not the definition of the product.
 
@@ -31,19 +31,22 @@ Current core capabilities:
 - transcript search
 - deterministic time-window outline generation
 - transcript-provider port
-- fixture provider for the first UI slice
+- persistence repository port
+- portable saved-exploration contract
+- fixture provider for deterministic development
 
 ## Dependency direction
 
 Framework and infrastructure code may depend on the core. The core must not depend on framework or infrastructure code.
 
 ```text
-app/ -----------------------> core/projectr/
-Amplify adapter -----------> core/projectr/
-YouTube transcript adapter -> core/projectr/
-AI enrichment adapter -----> core/projectr/
+app/ ---------------------------------> core/projectr/
+YouTube transcript adapter ----------> core/projectr/
+Browser local-storage adapter --------> core/projectr/
+Future SQL / Dynamo / file adapter ---> core/projectr/
+AI enrichment adapter ---------------> core/projectr/
 
-core/projectr/ -X-> Next.js / Amplify / database / AI SDK
+core/projectr/ -X-> Next.js / Amplify / browser APIs / database / AI SDK
 ```
 
 ## Portable contracts
@@ -52,21 +55,45 @@ core/projectr/ -X-> Next.js / Amplify / database / AI SDK
 - `TranscriptSegment`
 - `KnowledgeMap` / `TopicNode`
 - `SearchHit`
+- `SavedExploration`
 
 A later C#, Python, Rust, or other implementation should be able to consume or generate the same contract shapes without changing Projectr's product semantics.
 
-## Adapter policy
+## Transcript adapter policy
 
-External capabilities belong behind small interfaces. Current example:
+Transcript acquisition terminates at a small port:
 
 ```text
 TranscriptProvider.getTranscript(SourceVideo) -> TranscriptCue[]
 ```
 
-Future ports should follow the same pattern for persistence, metadata resolution, AI enrichment, and search indexing.
+The current adapters are the official YouTube captions API for authorized videos, local VTT/SRT import, and a deterministic fixture.
 
-## First-slice limitation
+## Persistence boundary
 
-The initial UI uses a fixture transcript provider deliberately. This validates URL parsing, normalization, search, timestamp navigation, and deterministic outline generation without prematurely selecting a YouTube transcript library or remote service.
+A persisted Projectr exploration is a portable artifact, not a database row shape:
 
-A live transcript adapter is the next infrastructure task and must replace the fixture through `TranscriptProvider`, not by leaking provider-specific objects into the core.
+```text
+SavedExploration
+  = SourceVideo
+  + TranscriptSegment[]
+  + KnowledgeMap
+  + provider provenance
+  + schema version / saved timestamp
+```
+
+Persistence mechanisms implement:
+
+```text
+ExplorationRepository
+  save(SavedExploration)
+  get(id)
+  list()
+  remove(id)
+```
+
+The first adapter uses browser local storage because it is dependency-free and makes the vertical slice executable. It is not the long-term storage ontology. IndexedDB, SQLite, filesystem, Postgres, DynamoDB, or a remote service can replace it without changing `SavedExploration` or the application-facing repository contract.
+
+## Adapter policy
+
+Future external capabilities should follow the same pattern for metadata resolution, AI enrichment, search indexing, export, and Corpus Forge integration. Provider-specific objects terminate at their adapter boundaries.

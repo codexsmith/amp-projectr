@@ -53,6 +53,7 @@
 }
 
 .ingest,
+.library,
 .emptyState,
 .sourceBar,
 .outlinePanel,
@@ -70,7 +71,13 @@
   padding: 24px;
 }
 
+.library {
+  margin-top: 18px;
+  padding: 20px;
+}
+
 .ingest h2,
+.library h2,
 .emptyState h2,
 .panelHeading h2 {
   margin: 4px 0 8px;
@@ -120,10 +127,12 @@
   box-shadow: 0 0 0 3px rgba(112, 88, 201, 0.12);
 }
 
-.inputRow button {
+.inputRow button,
+.saveButton,
+.savedActions button {
   border: 0;
   border-radius: 10px;
-  padding: 0 20px;
+  padding: 10px 16px;
   background: #18181b;
   color: #ffffff;
   font: inherit;
@@ -152,6 +161,23 @@
   font-size: 0.88rem;
 }
 
+.sourceActions,
+.savedActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.saveButton {
+  padding: 8px 12px;
+}
+
+.persistenceMessage {
+  margin: 8px 4px 0;
+  color: #3f6f52;
+  font-size: 0.84rem;
+}
+
 .statusDot {
   display: inline-block;
   width: 8px;
@@ -159,6 +185,40 @@
   margin-right: 8px;
   border-radius: 50%;
   background: #3f8f62;
+}
+
+.savedList {
+  display: grid;
+  gap: 8px;
+}
+
+.savedItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 14px;
+  border: 1px solid #ecebf0;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.savedItem strong {
+  display: block;
+}
+
+.savedItem p,
+.savedItem small {
+  display: block;
+  margin: 4px 0 0;
+  color: #71717a;
+  font-size: 0.8rem;
+}
+
+.savedActions .removeButton {
+  background: transparent;
+  color: #8f3030;
+  border: 1px solid #ead1d1;
 }
 
 .workspace {
@@ -305,8 +365,12 @@
 
   .header,
   .sourceBar,
+  .sourceActions,
+  .savedItem,
+  .savedActions,
   .emptyState {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .ingest,
@@ -318,7 +382,9 @@
     flex-direction: column;
   }
 
-  .inputRow button {
+  .inputRow button,
+  .saveButton,
+  .savedActions button {
     min-height: 44px;
   }
 }

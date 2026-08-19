@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "saved-exploration.schema.json",
+  "title": "SavedExploration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "savedAt", "source", "transcriptSegments", "knowledgeMap"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "savedAt": { "type": "string", "format": "date-time" },
+    "source": { "$ref": "source-video.schema.json" },
+    "transcriptSegments": {
+      "type": "array",
+      "items": { "$ref": "transcript-segment.schema.json" }
+    },
+    "knowledgeMap": { "$ref": "knowledge-map.schema.json" },
+    "providerLabel": { "type": "string" }
+  }
+}

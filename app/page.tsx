@@ -1,15 +1,19 @@
 "use client";
 
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import styles from "./page.module.css";
+import { BrowserLocalStorageExplorationRepository } from "../adapters/persistence/browser-local-storage";
 import { parseCaptionText } from "../adapters/transcripts/caption-file";
 import {
   DemoTranscriptProvider,
+  createSavedExploration,
   deriveOutline,
+  explorationIdFor,
   normalizeTranscript,
   parseYouTubeUrl,
   searchTranscript,
   youtubeTimestampUrl,
+  type ExplorationSummary,
   type KnowledgeMap,
   type SourceVideo,
   type TranscriptCue,
@@ -17,6 +21,7 @@ import {
 } from "../core/projectr";
 
 const demoTranscriptProvider = new DemoTranscriptProvider();
+const explorationRepository = new BrowserLocalStorageExplorationRepository();
 
 interface LiveTranscriptResponse {
   source?: SourceVideo;
@@ -31,6 +36,11 @@ function formatTimestamp(seconds: number): string {
   return `${minutes}:${remaining.toString().padStart(2, "0")}`;
 }
 
+function formatSavedAt(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
 export default function HomePage() {
   const [url, setUrl] = useState("");
   const [query, setQuery] = useState("");
@@ -38,10 +48,26 @@ export default function HomePage() {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [knowledgeMap, setKnowledgeMap] = useState<KnowledgeMap | null>(null);
   const [providerLabel, setProviderLabel] = useState<string | null>(null);
+  const [savedExplorations, setSavedExplorations] = useState<ExplorationSummary[]>([]);
+  const [persistenceMessage, setPersistenceMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const hits = useMemo(() => searchTranscript(segments, query), [segments, query]);
+  const currentSavedId = source ? explorationIdFor(source) : null;
+  const currentIsSaved = currentSavedId ? savedExplorations.some((item) => item.id === currentSavedId) : false;
+
+  useEffect(() => {
+    void refreshSavedExplorations();
+  }, []);
+
+  async function refreshSavedExplorations(): Promise<void> {
+    try {
+      setSavedExplorations(await explorationRepository.list());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to read local Projectr storage.");
+    }
+  }
 
   function applyTranscript(parsed: SourceVideo, cues: TranscriptCue[], label: string): void {
     const normalized = normalizeTranscript(parsed.sourceId, cues);
@@ -51,6 +77,7 @@ export default function HomePage() {
     setSegments(normalized);
     setKnowledgeMap(deriveOutline(parsed.sourceId, normalized));
     setProviderLabel(label);
+    setPersistenceMessage(null);
     setQuery("");
   }
 
@@ -59,6 +86,7 @@ export default function HomePage() {
     setSegments([]);
     setKnowledgeMap(null);
     setProviderLabel(null);
+    setPersistenceMessage(null);
   }
 
   async function exploreLive(): Promise<void> {
@@ -123,6 +151,55 @@ export default function HomePage() {
     }
   }
 
+  async function saveCurrent(): Promise<void> {
+    if (!source || !knowledgeMap) return;
+    setError(null);
+    try {
+      await explorationRepository.save(createSavedExploration({
+        source,
+        transcriptSegments: segments,
+        knowledgeMap,
+        savedAt: new Date().toISOString(),
+        providerLabel: providerLabel ?? undefined,
+      }));
+      await refreshSavedExplorations();
+      setPersistenceMessage("Saved in this browser through the Projectr repository port.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save this exploration locally.");
+    }
+  }
+
+  async function loadSaved(id: string): Promise<void> {
+    setError(null);
+    try {
+      const saved = await explorationRepository.get(id);
+      if (!saved) {
+        await refreshSavedExplorations();
+        throw new Error("That saved exploration is no longer available.");
+      }
+      setUrl(saved.source.canonicalUrl);
+      setSource(saved.source);
+      setSegments(saved.transcriptSegments);
+      setKnowledgeMap(saved.knowledgeMap);
+      setProviderLabel(saved.providerLabel ?? "Saved local exploration");
+      setPersistenceMessage(`Loaded local snapshot saved ${formatSavedAt(saved.savedAt)}.`);
+      setQuery("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load this saved exploration.");
+    }
+  }
+
+  async function removeSaved(id: string): Promise<void> {
+    setError(null);
+    try {
+      await explorationRepository.remove(id);
+      await refreshSavedExplorations();
+      setPersistenceMessage("Removed the local saved copy. The currently loaded exploration is unchanged.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to remove this saved exploration.");
+    }
+  }
+
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
@@ -157,12 +234,45 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className={styles.library} aria-labelledby="saved-heading">
+        <div className={styles.panelHeading}>
+          <div>
+            <p className={styles.panelKicker}>Persistence adapter</p>
+            <h2 id="saved-heading">Saved in this browser</h2>
+          </div>
+          <span>{savedExplorations.length} saved</span>
+        </div>
+        {savedExplorations.length > 0 ? (
+          <div className={styles.savedList}>
+            {savedExplorations.map((item) => (
+              <article className={styles.savedItem} key={item.id}>
+                <div>
+                  <strong>{item.source.title ?? item.source.sourceId}</strong>
+                  <p>{item.segmentCount} segments · {item.topicCount} topics · {formatSavedAt(item.savedAt)}</p>
+                  {item.providerLabel ? <small>{item.providerLabel}</small> : null}
+                </div>
+                <div className={styles.savedActions}>
+                  <button type="button" onClick={() => loadSaved(item.id)}>Load</button>
+                  <button type="button" className={styles.removeButton} onClick={() => removeSaved(item.id)}>Remove</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className={styles.empty}>No saved explorations yet. Loaded transcript artifacts can be persisted locally without selecting a database.</p>
+        )}
+      </section>
+
       {source && knowledgeMap ? (
         <>
           <section className={styles.sourceBar} aria-label="Loaded source">
             <div><span className={styles.statusDot} aria-hidden="true" /><strong>Source loaded:</strong> {source.sourceId}</div>
-            <div className={styles.fixtureNotice}>{providerLabel}</div>
+            <div className={styles.sourceActions}>
+              <span className={styles.fixtureNotice}>{providerLabel}</span>
+              <button type="button" className={styles.saveButton} onClick={saveCurrent}>{currentIsSaved ? "Save new snapshot" : "Save locally"}</button>
+            </div>
           </section>
+          {persistenceMessage ? <p className={styles.persistenceMessage} role="status">{persistenceMessage}</p> : null}
 
           <section className={styles.workspace}>
             <aside className={styles.outlinePanel} aria-labelledby="outline-heading">
@@ -204,12 +314,12 @@ export default function HomePage() {
         </>
       ) : (
         <section className={styles.emptyState}>
-          <div><p className={styles.panelKicker}>Adapter boundary intact</p><h2>One knowledge model, multiple transcript sources.</h2></div>
+          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition and persistence mechanisms.</h2></div>
           <ul>
             <li>Official OAuth captions for authorized videos</li>
             <li>Local VTT/SRT import for other lawful transcript sources</li>
-            <li>Demo fixture for core development</li>
-            <li>No scraper, AI SDK, database, or cloud dependency in the core</li>
+            <li>Browser-local persistence behind `ExplorationRepository`</li>
+            <li>No AI SDK, database, or cloud dependency in the core</li>
           </ul>
         </section>
       )}

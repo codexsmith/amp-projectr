@@ -8,7 +8,7 @@ The current repository began as an AWS Amplify Gen2 + Next.js starter. The Proje
 
 > The product model must not be owned by its implementation language, UI framework, cloud provider, database, or AI provider.
 
-Portable JSON contracts live in `contracts/projectr`. Executable domain logic lives in `core/projectr` and has no dependency on Next.js, React, Amplify, AWS, a database client, an AI SDK, or a transcript library.
+Portable JSON contracts live in `contracts/projectr`. Executable domain logic lives in `core/projectr` and has no dependency on Next.js, React, Amplify, AWS, browser storage, a database client, an AI SDK, or a transcript library.
 
 See `ARCHITECTURE.md` for the dependency rule and adapter strategy.
 
@@ -25,7 +25,9 @@ Implemented behavior:
 - use the official YouTube Data API captions endpoints for videos the authenticated account is authorized to manage;
 - import VTT/SRT caption material through a local adapter;
 - retain the fixture provider for development and deterministic testing;
-- expose all three acquisition paths through a thin Next.js UI.
+- persist a `SavedExploration` through the framework-neutral `ExplorationRepository` port;
+- save/load/remove explorations through the first browser-local persistence adapter;
+- expose the flow through a thin Next.js UI.
 
 ## Transcript acquisition
 
@@ -43,6 +45,24 @@ The token should include the YouTube `youtube.force-ssl` scope and belong to an 
 
 For other lawful transcript sources, paste the YouTube URL for provenance/timestamp links and import a `.vtt` or `.srt` caption file. The imported cues enter the same Projectr normalization/search/outline pipeline.
 
+## Persistence
+
+`SavedExploration` is the portable persisted artifact. It contains the source, normalized transcript segments, knowledge map, provider provenance, schema version, and save timestamp.
+
+The core only knows this repository contract:
+
+```text
+ExplorationRepository
+  save(exploration)
+  get(id)
+  list()
+  remove(id)
+```
+
+The first implementation is `BrowserLocalStorageExplorationRepository`. It is deliberately small and dependency-free. It makes the v0 workflow persist across page reloads on the same browser origin, but it is not intended as archival storage or cross-device sync.
+
+A later IndexedDB, SQLite, filesystem, Postgres, DynamoDB, or remote-service adapter can replace it without changing the Projectr domain contract.
+
 ## Run
 
 ```bash
@@ -56,10 +76,8 @@ npm run dev
 npm run test:core
 ```
 
-The test command uses the repository's existing TypeScript dependency and Node. It covers the portable core plus transcript adapters without adding a testing framework.
+The test command uses the repository's existing TypeScript dependency and Node. It covers the portable core, transcript adapters, and persistence adapter without adding a testing framework.
 
 ## Adapter boundary
 
-Provider-specific response objects terminate at `adapters/transcripts` and are converted to `TranscriptCue[]`. The core only sees the `TranscriptProvider` contract and portable domain types.
-
-Future transcript integrations can therefore be added or replaced without changing the Projectr knowledge model.
+Provider-specific response objects terminate under `adapters/` and are converted to Projectr portable contracts. Framework and infrastructure dependencies point inward; the Projectr core does not point back out at them.

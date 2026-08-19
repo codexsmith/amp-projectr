@@ -1,5 +1,5 @@
 import {
-  SAVED_EXPLORATION_SCHEMA_VERSION,
+  isSavedExploration,
   summarizeExploration,
   type ExplorationRepository,
   type ExplorationSummary,
@@ -15,7 +15,6 @@ export interface KeyValueStorage {
 }
 
 const DEFAULT_PREFIX = "projectr.saved-exploration.v1:";
-
 type StorageResolver = () => KeyValueStorage;
 
 function defaultStorageResolver(): KeyValueStorage {
@@ -25,20 +24,6 @@ function defaultStorageResolver(): KeyValueStorage {
   return window.localStorage;
 }
 
-function isSavedExploration(value: unknown): value is SavedExploration {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<SavedExploration>;
-  return candidate.schemaVersion === SAVED_EXPLORATION_SCHEMA_VERSION
-    && typeof candidate.id === "string"
-    && typeof candidate.savedAt === "string"
-    && candidate.source?.kind === "youtube"
-    && typeof candidate.source.sourceId === "string"
-    && typeof candidate.source.canonicalUrl === "string"
-    && Array.isArray(candidate.transcriptSegments)
-    && candidate.knowledgeMap?.sourceId === candidate.source.sourceId
-    && Array.isArray(candidate.knowledgeMap.topics);
-}
-
 export class BrowserLocalStorageExplorationRepository implements ExplorationRepository {
   constructor(
     private readonly resolveStorage: StorageResolver = defaultStorageResolver,
@@ -46,6 +31,9 @@ export class BrowserLocalStorageExplorationRepository implements ExplorationRepo
   ) {}
 
   async save(exploration: SavedExploration): Promise<void> {
+    if (!isSavedExploration(exploration)) {
+      throw new Error("Cannot persist an invalid Projectr exploration.");
+    }
     this.resolveStorage().setItem(this.storageKey(exploration.id), JSON.stringify(exploration));
   }
 

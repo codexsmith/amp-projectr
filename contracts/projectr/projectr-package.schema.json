@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boundaryfirstlabs.org/contracts/projectr/projectr-package.schema.json",
+  "title": "Projectr Exploration Package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mediaType", "schemaVersion", "exportedAt", "exploration"],
+  "properties": {
+    "mediaType": {
+      "const": "application/vnd.boundaryfirst.projectr.exploration+json"
+    },
+    "schemaVersion": { "const": 1 },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "exploration": { "$ref": "saved-exploration.schema.json" }
+  }
+}

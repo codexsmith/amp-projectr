@@ -5,16 +5,21 @@ import styles from "./page.module.css";
 import { BrowserLocalStorageExplorationRepository } from "../adapters/persistence/browser-local-storage";
 import { parseCaptionText } from "../adapters/transcripts/caption-file";
 import {
+  PROJECTR_PACKAGE_MEDIA_TYPE,
   DemoTranscriptProvider,
+  createProjectrPackage,
   createSavedExploration,
   deriveOutline,
   explorationIdFor,
   normalizeTranscript,
+  parseProjectrPackage,
   parseYouTubeUrl,
   searchTranscript,
+  serializeProjectrPackage,
   youtubeTimestampUrl,
   type ExplorationSummary,
   type KnowledgeMap,
+  type SavedExploration,
   type SourceVideo,
   type TranscriptCue,
   type TranscriptSegment,
@@ -57,6 +62,15 @@ function formatSavedAt(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function projectrFilename(source: SourceVideo): string {
+  const stem = (source.title ?? source.sourceId)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return `projectr-${stem || source.sourceId}.json`;
+}
+
 export default function HomePage() {
   const [url, setUrl] = useState("");
   const [query, setQuery] = useState("");
@@ -66,7 +80,7 @@ export default function HomePage() {
   const [providerLabel, setProviderLabel] = useState<string | null>(null);
   const [metadataMessage, setMetadataMessage] = useState<string | null>(null);
   const [savedExplorations, setSavedExplorations] = useState<ExplorationSummary[]>([]);
-  const [persistenceMessage, setPersistenceMessage] = useState<string | null>(null);
+  const [activityMessage, setActivityMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -97,7 +111,9 @@ export default function HomePage() {
       });
       const payload = await response.json() as MetadataResponse;
       if (!response.ok || !payload.source) {
-        setMetadataMessage(payload.error?.message ?? "Source metadata is unavailable; transcript processing can continue.");
+        setMetadataMessage(
+          payload.error?.message ?? "Source metadata is unavailable; transcript processing can continue.",
+        );
         return parsed;
       }
       setMetadataMessage(null);
@@ -118,7 +134,18 @@ export default function HomePage() {
     setSegments(normalized);
     setKnowledgeMap(deriveOutline(parsed.sourceId, normalized));
     setProviderLabel(label);
-    setPersistenceMessage(null);
+    setActivityMessage(null);
+    setQuery("");
+  }
+
+  function applySavedExploration(saved: SavedExploration, message: string): void {
+    setUrl(saved.source.canonicalUrl);
+    setSource(saved.source);
+    setSegments(saved.transcriptSegments);
+    setKnowledgeMap(saved.knowledgeMap);
+    setProviderLabel(saved.providerLabel ?? "Portable Projectr exploration");
+    setMetadataMessage(null);
+    setActivityMessage(message);
     setQuery("");
   }
 
@@ -127,7 +154,36 @@ export default function HomePage() {
     setSegments([]);
     setKnowledgeMap(null);
     setProviderLabel(null);
-    setPersistenceMessage(null);
+    setActivityMessage(null);
+  }
+
+  function currentSnapshot(savedAt: string): SavedExploration {
+    if (!source || !knowledgeMap) {
+      throw new Error("Load an exploration before creating a Projectr artifact.");
+    }
+    return createSavedExploration({
+      source,
+      transcriptSegments: segments,
+      knowledgeMap,
+      savedAt,
+      providerLabel: providerLabel ?? undefined,
+    });
+  }
+
+  function downloadPackage(exploration: SavedExploration): void {
+    const exportedAt = new Date().toISOString();
+    const projectrPackage = createProjectrPackage(exploration, exportedAt);
+    const blob = new Blob([serializeProjectrPackage(projectrPackage)], {
+      type: `${PROJECTR_PACKAGE_MEDIA_TYPE};charset=utf-8`,
+    });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = projectrFilename(exploration.source);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
   }
 
   async function exploreLive(): Promise<void> {
@@ -144,7 +200,9 @@ export default function HomePage() {
       });
       const payload = await response.json() as LiveTranscriptResponse;
       if (!response.ok || !payload.cues) {
-        throw new Error(payload.error?.message ?? "Unable to obtain captions from the configured live provider.");
+        throw new Error(
+          payload.error?.message ?? "Unable to obtain captions from the configured live provider.",
+        );
       }
       applyTranscript(enriched, payload.cues, "Official YouTube captions / authorized video");
     } catch (caught) {
@@ -162,7 +220,11 @@ export default function HomePage() {
     try {
       const parsed = parseYouTubeUrl(url);
       const enriched = await enrichSource(parsed);
-      applyTranscript(enriched, await demoTranscriptProvider.getTranscript(enriched), "Demo fixture / portable core");
+      applyTranscript(
+        enriched,
+        await demoTranscriptProvider.getTranscript(enriched),
+        "Demo fixture / portable core",
+      );
     } catch (caught) {
       clearResult();
       setError(caught instanceof Error ? caught.message : "Unable to load the demo transcript.");
@@ -195,21 +257,44 @@ export default function HomePage() {
     }
   }
 
+  async function importProjectrPackage(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setError(null);
+    setLoading(true);
+    try {
+      const projectrPackage = parseProjectrPackage(await file.text());
+      applySavedExploration(
+        projectrPackage.exploration,
+        `Loaded portable package exported ${formatSavedAt(projectrPackage.exportedAt)}. Local storage is unchanged.`,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to import this Projectr package.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function saveCurrent(): Promise<void> {
-    if (!source || !knowledgeMap) return;
     setError(null);
     try {
-      await explorationRepository.save(createSavedExploration({
-        source,
-        transcriptSegments: segments,
-        knowledgeMap,
-        savedAt: new Date().toISOString(),
-        providerLabel: providerLabel ?? undefined,
-      }));
+      await explorationRepository.save(currentSnapshot(new Date().toISOString()));
       await refreshSavedExplorations();
-      setPersistenceMessage("Saved in this browser through the Projectr repository port.");
+      setActivityMessage("Saved in this browser through the Projectr repository port.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to save this exploration locally.");
+    }
+  }
+
+  function exportCurrent(): void {
+    setError(null);
+    try {
+      downloadPackage(currentSnapshot(new Date().toISOString()));
+      setActivityMessage("Exported a portable Projectr package. Local storage is unchanged.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to export this Projectr package.");
     }
   }
 
@@ -221,16 +306,24 @@ export default function HomePage() {
         await refreshSavedExplorations();
         throw new Error("That saved exploration is no longer available.");
       }
-      setUrl(saved.source.canonicalUrl);
-      setSource(saved.source);
-      setSegments(saved.transcriptSegments);
-      setKnowledgeMap(saved.knowledgeMap);
-      setProviderLabel(saved.providerLabel ?? "Saved local exploration");
-      setMetadataMessage(null);
-      setPersistenceMessage(`Loaded local snapshot saved ${formatSavedAt(saved.savedAt)}.`);
-      setQuery("");
+      applySavedExploration(saved, `Loaded local snapshot saved ${formatSavedAt(saved.savedAt)}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to load this saved exploration.");
+    }
+  }
+
+  async function exportSaved(id: string): Promise<void> {
+    setError(null);
+    try {
+      const saved = await explorationRepository.get(id);
+      if (!saved) {
+        await refreshSavedExplorations();
+        throw new Error("That saved exploration is no longer available.");
+      }
+      downloadPackage(saved);
+      setActivityMessage("Exported a saved exploration as a portable Projectr package.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to export this saved exploration.");
     }
   }
 
@@ -239,7 +332,7 @@ export default function HomePage() {
     try {
       await explorationRepository.remove(id);
       await refreshSavedExplorations();
-      setPersistenceMessage("Removed the local saved copy. The currently loaded exploration is unchanged.");
+      setActivityMessage("Removed the local saved copy. The currently loaded exploration is unchanged.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to remove this saved exploration.");
     }
@@ -276,15 +369,21 @@ export default function HomePage() {
               <input type="file" accept=".vtt,.srt,text/vtt,application/x-subrip,text/plain" onChange={importCaptions} disabled={loading} style={{ marginLeft: 8 }} />
             </label>
           </div>
-          <p>Projectr does not scrape the YouTube watch page. Acquisition, metadata, and persistence remain replaceable adapters.</p>
+          <p>Projectr does not scrape the YouTube watch page. Acquisition, metadata, persistence, and interchange remain replaceable boundaries.</p>
           {error ? <p className={styles.error} role="alert">{error}</p> : null}
         </div>
       </section>
 
       <section className={styles.library} aria-labelledby="saved-heading">
         <div className={styles.panelHeading}>
-          <div><p className={styles.panelKicker}>Persistence adapter</p><h2 id="saved-heading">Saved in this browser</h2></div>
-          <span>{savedExplorations.length} saved</span>
+          <div><p className={styles.panelKicker}>Artifact boundary</p><h2 id="saved-heading">Saved and portable explorations</h2></div>
+          <div className={styles.libraryActions}>
+            <span>{savedExplorations.length} saved</span>
+            <label className={styles.importButton}>
+              Import Projectr JSON
+              <input type="file" accept=".json,application/json" onChange={importProjectrPackage} disabled={loading} />
+            </label>
+          </div>
         </div>
         {savedExplorations.length > 0 ? (
           <div className={styles.savedList}>
@@ -297,12 +396,13 @@ export default function HomePage() {
                 </div>
                 <div className={styles.savedActions}>
                   <button type="button" onClick={() => loadSaved(item.id)}>Load</button>
+                  <button type="button" className={styles.secondaryButton} onClick={() => exportSaved(item.id)}>Export</button>
                   <button type="button" className={styles.removeButton} onClick={() => removeSaved(item.id)}>Remove</button>
                 </div>
               </article>
             ))}
           </div>
-        ) : <p className={styles.empty}>No saved explorations yet. Loaded transcript artifacts can be persisted locally without selecting a database.</p>}
+        ) : <p className={styles.empty}>No saved explorations yet. Import a Projectr package or save a loaded exploration; neither requires a database.</p>}
       </section>
 
       {source && knowledgeMap ? (
@@ -317,11 +417,12 @@ export default function HomePage() {
             </div>
             <div className={styles.sourceActions}>
               <span className={styles.fixtureNotice}>{providerLabel}</span>
+              <button type="button" className={styles.secondaryButton} onClick={exportCurrent}>Export package</button>
               <button type="button" className={styles.saveButton} onClick={saveCurrent}>{currentIsSaved ? "Save new snapshot" : "Save locally"}</button>
             </div>
           </section>
           {metadataMessage ? <p className={styles.metadataMessage} role="status">Metadata: {metadataMessage}</p> : null}
-          {persistenceMessage ? <p className={styles.persistenceMessage} role="status">{persistenceMessage}</p> : null}
+          {activityMessage ? <p className={styles.activityMessage} role="status">{activityMessage}</p> : null}
 
           <section className={styles.workspace}>
             <aside className={styles.outlinePanel} aria-labelledby="outline-heading">
@@ -355,8 +456,8 @@ export default function HomePage() {
         </>
       ) : (
         <section className={styles.emptyState}>
-          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition, metadata, and persistence mechanisms.</h2></div>
-          <ul><li>Official source metadata behind `SourceMetadataProvider`</li><li>Official OAuth captions or local VTT/SRT import</li><li>Browser-local persistence behind `ExplorationRepository`</li><li>No AI SDK, database, or cloud dependency in the core</li></ul>
+          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition, metadata, persistence, and interchange mechanisms.</h2></div>
+          <ul><li>Official source metadata behind `SourceMetadataProvider`</li><li>Official OAuth captions or local VTT/SRT import</li><li>Browser-local persistence behind `ExplorationRepository`</li><li>Versioned Projectr JSON packages for external consumers such as CorpusForge</li></ul>
         </section>
       )}
     </main>

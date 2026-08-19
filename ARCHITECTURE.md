@@ -2,9 +2,9 @@
 
 ## Rule: product contracts precede implementation frameworks
 
-Projectr is not Next.js, Amplify, DynamoDB, Python, a particular AI model, or a particular transcript library.
+Projectr is not Next.js, Amplify, DynamoDB, Python, a particular AI model, a metadata service, or a transcript library.
 
-The product model must remain portable across language, UI framework, cloud provider, database, and AI provider changes.
+The product model must remain portable across language, UI framework, cloud provider, database, and external-provider changes.
 
 ```text
 Portable contracts
@@ -15,63 +15,37 @@ Application use cases
       |
 Ports / provider interfaces
       |
-Adapters: Next.js, transcript source, persistence, AI, search index, etc.
+Adapters: UI, metadata, transcript, persistence, AI, search index, etc.
 ```
 
 ## Current core
 
-`core/projectr` contains plain TypeScript with no imports from Next.js, React, Amplify, AWS, a database client, browser storage, or an AI SDK.
+`core/projectr` contains plain TypeScript with no imports from Next.js, React, Amplify, AWS, browser storage, database clients, or AI SDKs.
 
-The canonical cross-language shapes live under `contracts/projectr` as JSON Schema. TypeScript is the first executable implementation of those contracts, not the definition of the product.
+Portable contracts include `SourceVideo`, `SourceMetadata`, `TranscriptSegment`, `KnowledgeMap`, `SearchHit`, and `SavedExploration`.
 
-Current core capabilities:
+## Metadata boundary
 
-- YouTube URL parsing and canonicalization
-- transcript normalization
-- transcript search
-- deterministic time-window outline generation
-- transcript-provider port
-- persistence repository port
-- portable saved-exploration contract
-- fixture provider for deterministic development
-
-## Dependency direction
-
-Framework and infrastructure code may depend on the core. The core must not depend on framework or infrastructure code.
+Source enrichment terminates at:
 
 ```text
-app/ ---------------------------------> core/projectr/
-YouTube transcript adapter ----------> core/projectr/
-Browser local-storage adapter --------> core/projectr/
-Future SQL / Dynamo / file adapter ---> core/projectr/
-AI enrichment adapter ---------------> core/projectr/
-
-core/projectr/ -X-> Next.js / Amplify / browser APIs / database / AI SDK
+SourceMetadataProvider
+  getMetadata(SourceVideo) -> SourceMetadata | null
 ```
 
-## Portable contracts
+The first adapter maps YouTube `videos.list` `snippet` and `contentDetails` fields into the portable contract. API keys, OAuth headers, YouTube resource shapes, and ISO-8601 duration strings terminate inside the adapter.
 
-- `SourceVideo`
-- `TranscriptSegment`
-- `KnowledgeMap` / `TopicNode`
-- `SearchHit`
-- `SavedExploration`
+Metadata failure is non-fatal. The minimum lawful source identity remains `kind + sourceId + canonicalUrl`; enrichment may be added when available.
 
-A later C#, Python, Rust, or other implementation should be able to consume or generate the same contract shapes without changing Projectr's product semantics.
-
-## Transcript adapter policy
-
-Transcript acquisition terminates at a small port:
+## Transcript boundary
 
 ```text
 TranscriptProvider.getTranscript(SourceVideo) -> TranscriptCue[]
 ```
 
-The current adapters are the official YouTube captions API for authorized videos, local VTT/SRT import, and a deterministic fixture.
+Current adapters are official YouTube captions for authorized videos, local VTT/SRT import, and a deterministic fixture.
 
 ## Persistence boundary
-
-A persisted Projectr exploration is a portable artifact, not a database row shape:
 
 ```text
 SavedExploration
@@ -80,11 +54,7 @@ SavedExploration
   + KnowledgeMap
   + provider provenance
   + schema version / saved timestamp
-```
 
-Persistence mechanisms implement:
-
-```text
 ExplorationRepository
   save(SavedExploration)
   get(id)
@@ -92,8 +62,19 @@ ExplorationRepository
   remove(id)
 ```
 
-The first adapter uses browser local storage because it is dependency-free and makes the vertical slice executable. It is not the long-term storage ontology. IndexedDB, SQLite, filesystem, Postgres, DynamoDB, or a remote service can replace it without changing `SavedExploration` or the application-facing repository contract.
+The browser local-storage adapter is only the first implementation. Storage technology is not part of the Projectr ontology.
 
-## Adapter policy
+## Dependency direction
 
-Future external capabilities should follow the same pattern for metadata resolution, AI enrichment, search indexing, export, and Corpus Forge integration. Provider-specific objects terminate at their adapter boundaries.
+```text
+app/ ---------------------------------> core/projectr/
+YouTube metadata adapter ------------> core/projectr/
+YouTube transcript adapter ----------> core/projectr/
+Browser persistence adapter ---------> core/projectr/
+Future SQL / file / remote adapters --> core/projectr/
+AI enrichment adapter ---------------> core/projectr/
+
+core/projectr/ -X-> Next.js / YouTube API / Amplify / browser APIs / database / AI SDK
+```
+
+Provider-specific objects terminate at adapter boundaries. Future source types, Corpus Forge export, AI enrichment, and search indexing should preserve this direction.

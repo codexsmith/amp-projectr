@@ -29,11 +29,27 @@ interface LiveTranscriptResponse {
   error?: { message?: string };
 }
 
+interface MetadataResponse {
+  source?: SourceVideo;
+  error?: { code?: string; message?: string };
+}
+
 function formatTimestamp(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(whole / 60);
   const remaining = whole % 60;
   return `${minutes}:${remaining.toString().padStart(2, "0")}`;
+}
+
+function formatDuration(seconds?: number): string | null {
+  if (seconds === undefined) return null;
+  const whole = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const remaining = whole % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, "0")}:${remaining.toString().padStart(2, "0")}`
+    : `${minutes}:${remaining.toString().padStart(2, "0")}`;
 }
 
 function formatSavedAt(value: string): string {
@@ -48,6 +64,7 @@ export default function HomePage() {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [knowledgeMap, setKnowledgeMap] = useState<KnowledgeMap | null>(null);
   const [providerLabel, setProviderLabel] = useState<string | null>(null);
+  const [metadataMessage, setMetadataMessage] = useState<string | null>(null);
   const [savedExplorations, setSavedExplorations] = useState<ExplorationSummary[]>([]);
   const [persistenceMessage, setPersistenceMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +72,9 @@ export default function HomePage() {
 
   const hits = useMemo(() => searchTranscript(segments, query), [segments, query]);
   const currentSavedId = source ? explorationIdFor(source) : null;
-  const currentIsSaved = currentSavedId ? savedExplorations.some((item) => item.id === currentSavedId) : false;
+  const currentIsSaved = currentSavedId
+    ? savedExplorations.some((item) => item.id === currentSavedId)
+    : false;
 
   useEffect(() => {
     void refreshSavedExplorations();
@@ -69,9 +88,31 @@ export default function HomePage() {
     }
   }
 
+  async function enrichSource(parsed: SourceVideo): Promise<SourceVideo> {
+    try {
+      const response = await fetch("/api/metadata", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: parsed.canonicalUrl }),
+      });
+      const payload = await response.json() as MetadataResponse;
+      if (!response.ok || !payload.source) {
+        setMetadataMessage(payload.error?.message ?? "Source metadata is unavailable; transcript processing can continue.");
+        return parsed;
+      }
+      setMetadataMessage(null);
+      return payload.source;
+    } catch {
+      setMetadataMessage("Source metadata is unavailable; transcript processing can continue.");
+      return parsed;
+    }
+  }
+
   function applyTranscript(parsed: SourceVideo, cues: TranscriptCue[], label: string): void {
     const normalized = normalizeTranscript(parsed.sourceId, cues);
-    if (normalized.length === 0) throw new Error("The transcript contained no usable timestamped segments.");
+    if (normalized.length === 0) {
+      throw new Error("The transcript contained no usable timestamped segments.");
+    }
 
     setSource(parsed);
     setSegments(normalized);
@@ -95,6 +136,7 @@ export default function HomePage() {
 
     try {
       const parsed = parseYouTubeUrl(url);
+      const enriched = await enrichSource(parsed);
       const response = await fetch("/api/transcript", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -104,7 +146,7 @@ export default function HomePage() {
       if (!response.ok || !payload.cues) {
         throw new Error(payload.error?.message ?? "Unable to obtain captions from the configured live provider.");
       }
-      applyTranscript(payload.source ?? parsed, payload.cues, "Official YouTube captions / authorized video");
+      applyTranscript(enriched, payload.cues, "Official YouTube captions / authorized video");
     } catch (caught) {
       clearResult();
       setError(caught instanceof Error ? caught.message : "Unable to explore this source.");
@@ -119,7 +161,8 @@ export default function HomePage() {
 
     try {
       const parsed = parseYouTubeUrl(url);
-      applyTranscript(parsed, await demoTranscriptProvider.getTranscript(parsed), "Demo fixture / portable core");
+      const enriched = await enrichSource(parsed);
+      applyTranscript(enriched, await demoTranscriptProvider.getTranscript(enriched), "Demo fixture / portable core");
     } catch (caught) {
       clearResult();
       setError(caught instanceof Error ? caught.message : "Unable to load the demo transcript.");
@@ -137,12 +180,13 @@ export default function HomePage() {
     setLoading(true);
     try {
       const parsed = parseYouTubeUrl(url);
+      const enriched = await enrichSource(parsed);
       const extension = file.name.toLowerCase().split(".").pop();
       const cues = parseCaptionText(
         await file.text(),
         extension === "srt" ? "srt" : extension === "vtt" ? "vtt" : undefined,
       );
-      applyTranscript(parsed, cues, `Imported captions / ${file.name}`);
+      applyTranscript(enriched, cues, `Imported captions / ${file.name}`);
     } catch (caught) {
       clearResult();
       setError(caught instanceof Error ? caught.message : "Unable to import this caption file.");
@@ -182,6 +226,7 @@ export default function HomePage() {
       setSegments(saved.transcriptSegments);
       setKnowledgeMap(saved.knowledgeMap);
       setProviderLabel(saved.providerLabel ?? "Saved local exploration");
+      setMetadataMessage(null);
       setPersistenceMessage(`Loaded local snapshot saved ${formatSavedAt(saved.savedAt)}.`);
       setQuery("");
     } catch (caught) {
@@ -200,6 +245,8 @@ export default function HomePage() {
     }
   }
 
+  const sourceDuration = formatDuration(source?.durationSeconds);
+
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
@@ -214,7 +261,7 @@ export default function HomePage() {
       <section className={styles.ingest} aria-labelledby="ingest-heading">
         <div>
           <h2 id="ingest-heading">Explore a YouTube source</h2>
-          <p>Live access uses the official YouTube captions API for videos the authenticated account is authorized to manage. Other lawful transcript material can enter through VTT/SRT import.</p>
+          <p>Metadata enrichment uses the official YouTube videos API when configured. Transcript acquisition remains a separate adapter and metadata failure never blocks transcript processing.</p>
         </div>
         <div className={styles.ingestControls}>
           <label className={styles.inputLabel} htmlFor="youtube-url">YouTube URL</label>
@@ -229,17 +276,14 @@ export default function HomePage() {
               <input type="file" accept=".vtt,.srt,text/vtt,application/x-subrip,text/plain" onChange={importCaptions} disabled={loading} style={{ marginLeft: 8 }} />
             </label>
           </div>
-          <p>Projectr does not scrape the YouTube watch page. Transcript acquisition remains a replaceable adapter.</p>
+          <p>Projectr does not scrape the YouTube watch page. Acquisition, metadata, and persistence remain replaceable adapters.</p>
           {error ? <p className={styles.error} role="alert">{error}</p> : null}
         </div>
       </section>
 
       <section className={styles.library} aria-labelledby="saved-heading">
         <div className={styles.panelHeading}>
-          <div>
-            <p className={styles.panelKicker}>Persistence adapter</p>
-            <h2 id="saved-heading">Saved in this browser</h2>
-          </div>
+          <div><p className={styles.panelKicker}>Persistence adapter</p><h2 id="saved-heading">Saved in this browser</h2></div>
           <span>{savedExplorations.length} saved</span>
         </div>
         {savedExplorations.length > 0 ? (
@@ -248,8 +292,8 @@ export default function HomePage() {
               <article className={styles.savedItem} key={item.id}>
                 <div>
                   <strong>{item.source.title ?? item.source.sourceId}</strong>
-                  <p>{item.segmentCount} segments · {item.topicCount} topics · {formatSavedAt(item.savedAt)}</p>
-                  {item.providerLabel ? <small>{item.providerLabel}</small> : null}
+                  <p>{item.source.creatorName ? `${item.source.creatorName} · ` : ""}{item.source.durationSeconds !== undefined ? `${formatDuration(item.source.durationSeconds)} · ` : ""}{item.segmentCount} segments · {item.topicCount} topics</p>
+                  <small>{formatSavedAt(item.savedAt)}{item.providerLabel ? ` · ${item.providerLabel}` : ""}</small>
                 </div>
                 <div className={styles.savedActions}>
                   <button type="button" onClick={() => loadSaved(item.id)}>Load</button>
@@ -258,20 +302,25 @@ export default function HomePage() {
               </article>
             ))}
           </div>
-        ) : (
-          <p className={styles.empty}>No saved explorations yet. Loaded transcript artifacts can be persisted locally without selecting a database.</p>
-        )}
+        ) : <p className={styles.empty}>No saved explorations yet. Loaded transcript artifacts can be persisted locally without selecting a database.</p>}
       </section>
 
       {source && knowledgeMap ? (
         <>
           <section className={styles.sourceBar} aria-label="Loaded source">
-            <div><span className={styles.statusDot} aria-hidden="true" /><strong>Source loaded:</strong> {source.sourceId}</div>
+            <div className={styles.sourceIdentity}>
+              <span className={styles.statusDot} aria-hidden="true" />
+              <div>
+                <strong>{source.title ?? source.sourceId}</strong>
+                <p>{source.creatorName ?? "YouTube source"}{sourceDuration ? ` · ${sourceDuration}` : ""}</p>
+              </div>
+            </div>
             <div className={styles.sourceActions}>
               <span className={styles.fixtureNotice}>{providerLabel}</span>
               <button type="button" className={styles.saveButton} onClick={saveCurrent}>{currentIsSaved ? "Save new snapshot" : "Save locally"}</button>
             </div>
           </section>
+          {metadataMessage ? <p className={styles.metadataMessage} role="status">Metadata: {metadataMessage}</p> : null}
           {persistenceMessage ? <p className={styles.persistenceMessage} role="status">{persistenceMessage}</p> : null}
 
           <section className={styles.workspace}>
@@ -282,12 +331,7 @@ export default function HomePage() {
               </div>
               <ol className={styles.topicList}>
                 {knowledgeMap.topics.map((topic) => (
-                  <li key={topic.id}>
-                    <a href={youtubeTimestampUrl(source, topic.startSeconds)} target="_blank" rel="noreferrer">
-                      <span className={styles.timestamp}>{formatTimestamp(topic.startSeconds)}</span>
-                      <span><strong>{topic.title}</strong><small>{topic.keywords.join(" · ")}</small></span>
-                    </a>
-                  </li>
+                  <li key={topic.id}><a href={youtubeTimestampUrl(source, topic.startSeconds)} target="_blank" rel="noreferrer"><span className={styles.timestamp}>{formatTimestamp(topic.startSeconds)}</span><span><strong>{topic.title}</strong><small>{topic.keywords.join(" · ")}</small></span></a></li>
                 ))}
               </ol>
             </aside>
@@ -302,10 +346,7 @@ export default function HomePage() {
               <div className={styles.segmentList}>
                 {(query ? hits : segments).map((item) => {
                   const key = "segmentId" in item ? item.segmentId : item.id;
-                  return <article className={styles.segment} key={key}>
-                    <a className={styles.timestampLink} href={youtubeTimestampUrl(source, item.startSeconds)} target="_blank" rel="noreferrer">{formatTimestamp(item.startSeconds)}</a>
-                    <p>{item.text}</p>
-                  </article>;
+                  return <article className={styles.segment} key={key}><a className={styles.timestampLink} href={youtubeTimestampUrl(source, item.startSeconds)} target="_blank" rel="noreferrer">{formatTimestamp(item.startSeconds)}</a><p>{item.text}</p></article>;
                 })}
                 {query && hits.length === 0 ? <p className={styles.empty}>No matching transcript segments.</p> : null}
               </div>
@@ -314,13 +355,8 @@ export default function HomePage() {
         </>
       ) : (
         <section className={styles.emptyState}>
-          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition and persistence mechanisms.</h2></div>
-          <ul>
-            <li>Official OAuth captions for authorized videos</li>
-            <li>Local VTT/SRT import for other lawful transcript sources</li>
-            <li>Browser-local persistence behind `ExplorationRepository`</li>
-            <li>No AI SDK, database, or cloud dependency in the core</li>
-          </ul>
+          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition, metadata, and persistence mechanisms.</h2></div>
+          <ul><li>Official source metadata behind `SourceMetadataProvider`</li><li>Official OAuth captions or local VTT/SRT import</li><li>Browser-local persistence behind `ExplorationRepository`</li><li>No AI SDK, database, or cloud dependency in the core</li></ul>
         </section>
       )}
     </main>

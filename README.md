@@ -8,13 +8,13 @@ The current repository began as an AWS Amplify Gen2 + Next.js starter. The Proje
 
 > The product model must not be owned by its implementation language, UI framework, cloud provider, database, or AI provider.
 
-Portable JSON contracts live in `contracts/projectr`. Executable domain logic lives in `core/projectr` and currently has no dependency on Next.js, React, Amplify, AWS, a database client, an AI SDK, or a transcript library.
+Portable JSON contracts live in `contracts/projectr`. Executable domain logic lives in `core/projectr` and has no dependency on Next.js, React, Amplify, AWS, a database client, an AI SDK, or a transcript library.
 
 See `ARCHITECTURE.md` for the dependency rule and adapter strategy.
 
 ## Current vertical slice
 
-Implemented core behavior:
+Implemented behavior:
 
 - parse and canonicalize supported YouTube video URLs;
 - normalize timestamped transcript cues;
@@ -22,9 +22,26 @@ Implemented core behavior:
 - derive a deterministic time-window outline with keywords;
 - generate timestamp links back to YouTube;
 - abstract transcript acquisition behind `TranscriptProvider`;
-- expose the flow through a thin Next.js UI.
+- use the official YouTube Data API captions endpoints for videos the authenticated account is authorized to manage;
+- import VTT/SRT caption material through a local adapter;
+- retain the fixture provider for development and deterministic testing;
+- expose all three acquisition paths through a thin Next.js UI.
 
-The UI currently uses `DemoTranscriptProvider`, a fixture-backed adapter. This is deliberate: it closes and tests the product core before selecting a live YouTube transcript dependency.
+## Transcript acquisition
+
+Projectr deliberately does not scrape the YouTube watch page.
+
+The official YouTube captions API requires OAuth. Listing caption tracks requires authorization, and downloading a caption track through the official API requires sufficient permission for that video. For that reason the official adapter is best suited to creator-owned or otherwise authorized videos, not arbitrary public-video transcript extraction.
+
+Configure the server route with:
+
+```bash
+PROJECTR_YOUTUBE_OAUTH_ACCESS_TOKEN=...
+```
+
+The token should include the YouTube `youtube.force-ssl` scope and belong to an account authorized for the target video's captions.
+
+For other lawful transcript sources, paste the YouTube URL for provenance/timestamp links and import a `.vtt` or `.srt` caption file. The imported cues enter the same Projectr normalization/search/outline pipeline.
 
 ## Run
 
@@ -33,25 +50,16 @@ npm install
 npm run dev
 ```
 
-Then open the local Next.js URL and paste a supported YouTube video URL. The first slice validates the URL and runs the fixture transcript through the real Projectr normalization, search, outline, and timestamp-navigation core.
-
-## Core tests
+## Tests
 
 ```bash
 npm run test:core
 ```
 
-The core test command uses only the repository's existing TypeScript dependency and Node. It does not add a testing framework.
+The test command uses the repository's existing TypeScript dependency and Node. It covers the portable core plus transcript adapters without adding a testing framework.
 
-## Next adapter task
+## Adapter boundary
 
-Implement the first live `TranscriptProvider` without changing the core domain model. Candidate provider approaches should be evaluated for:
+Provider-specific response objects terminate at `adapters/transcripts` and are converted to `TranscriptCue[]`. The core only sees the `TranscriptProvider` contract and portable domain types.
 
-- legal/terms compatibility;
-- transcript availability and language handling;
-- stability;
-- authentication/API requirements;
-- failure behavior;
-- ability to return timestamped cues without downloading/re-encoding video.
-
-Provider-specific response objects must terminate at the adapter boundary and be converted to `TranscriptCue[]`.
+Future transcript integrations can therefore be added or replaced without changing the Projectr knowledge model.

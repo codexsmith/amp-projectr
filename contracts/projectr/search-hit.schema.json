@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boundaryfirstlabs.org/contracts/projectr/search-hit.schema.json",
+  "title": "Projectr SearchHit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["segmentId", "startSeconds", "endSeconds", "text", "score", "matchedTerms"],
+  "properties": {
+    "segmentId": { "type": "string", "minLength": 1 },
+    "startSeconds": { "type": "number", "minimum": 0 },
+    "endSeconds": { "type": "number", "minimum": 0 },
+    "text": { "type": "string", "minLength": 1 },
+    "score": { "type": "number", "minimum": 0 },
+    "matchedTerms": { "type": "array", "items": { "type": "string" } }
+  }
+}

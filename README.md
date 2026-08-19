@@ -1,25 +1,57 @@
-## AWS Amplify Next.js (App Router) Starter Template
+# Projectr / YouTube Knowledge Explorer
 
-This repository provides a starter template for creating applications using Next.js (App Router) and AWS Amplify, emphasizing easy setup for authentication, API, and database capabilities.
+Projectr turns long-form video into searchable, navigable, structured knowledge while preserving a path back to the source.
 
-## Overview
+The current repository began as an AWS Amplify Gen2 + Next.js starter. The Projectr core is intentionally being built independently of that starter infrastructure.
 
-This template equips you with a foundational Next.js application integrated with AWS Amplify, streamlined for scalability and performance. It is ideal for developers looking to jumpstart their project with pre-configured AWS services like Cognito, AppSync, and DynamoDB.
+## Architecture rule
 
-## Features
+> The product model must not be owned by its implementation language, UI framework, cloud provider, database, or AI provider.
 
-- **Authentication**: Setup with Amazon Cognito for secure user authentication.
-- **API**: Ready-to-use GraphQL endpoint with AWS AppSync.
-- **Database**: Real-time database powered by Amazon DynamoDB.
+Portable JSON contracts live in `contracts/projectr`. Executable domain logic lives in `core/projectr` and currently has no dependency on Next.js, React, Amplify, AWS, a database client, an AI SDK, or a transcript library.
 
-## Deploying to AWS
+See `ARCHITECTURE.md` for the dependency rule and adapter strategy.
 
-For detailed instructions on deploying your application, refer to the [deployment section](https://docs.amplify.aws/nextjs/start/quickstart/nextjs-app-router-client-components/#deploy-a-fullstack-app-to-aws) of our documentation.
+## Current vertical slice
 
-## Security
+Implemented core behavior:
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+- parse and canonicalize supported YouTube video URLs;
+- normalize timestamped transcript cues;
+- search transcript segments and preserve timestamps;
+- derive a deterministic time-window outline with keywords;
+- generate timestamp links back to YouTube;
+- abstract transcript acquisition behind `TranscriptProvider`;
+- expose the flow through a thin Next.js UI.
 
-## License
+The UI currently uses `DemoTranscriptProvider`, a fixture-backed adapter. This is deliberate: it closes and tests the product core before selecting a live YouTube transcript dependency.
 
-This library is licensed under the MIT-0 License. See the LICENSE file.
+## Run
+
+```bash
+npm install
+npm run dev
+```
+
+Then open the local Next.js URL and paste a supported YouTube video URL. The first slice validates the URL and runs the fixture transcript through the real Projectr normalization, search, outline, and timestamp-navigation core.
+
+## Core tests
+
+```bash
+npm run test:core
+```
+
+The core test command uses only the repository's existing TypeScript dependency and Node. It does not add a testing framework.
+
+## Next adapter task
+
+Implement the first live `TranscriptProvider` without changing the core domain model. Candidate provider approaches should be evaluated for:
+
+- legal/terms compatibility;
+- transcript availability and language handling;
+- stability;
+- authentication/API requirements;
+- failure behavior;
+- ability to return timestamped cues without downloading/re-encoding video.
+
+Provider-specific response objects must terminate at the adapter boundary and be converted to `TranscriptCue[]`.

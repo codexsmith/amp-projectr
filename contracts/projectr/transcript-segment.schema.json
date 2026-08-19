@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boundaryfirstlabs.org/contracts/projectr/transcript-segment.schema.json",
+  "title": "Projectr TranscriptSegment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "sourceId", "startSeconds", "endSeconds", "text"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "sourceId": { "type": "string", "minLength": 1 },
+    "startSeconds": { "type": "number", "minimum": 0 },
+    "endSeconds": { "type": "number", "minimum": 0 },
+    "text": { "type": "string", "minLength": 1 }
+  }
+}

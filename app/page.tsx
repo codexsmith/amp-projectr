@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ChangeEvent } from "react";
 import styles from "./page.module.css";
+import { parseCaptionText } from "../adapters/transcripts/caption-file";
 import {
   DemoTranscriptProvider,
   deriveOutline,
@@ -11,10 +12,17 @@ import {
   youtubeTimestampUrl,
   type KnowledgeMap,
   type SourceVideo,
+  type TranscriptCue,
   type TranscriptSegment,
-} from "@/core/projectr";
+} from "../core/projectr";
 
-const transcriptProvider = new DemoTranscriptProvider();
+const demoTranscriptProvider = new DemoTranscriptProvider();
+
+interface LiveTranscriptResponse {
+  source?: SourceVideo;
+  cues?: TranscriptCue[];
+  error?: { message?: string };
+}
 
 function formatTimestamp(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
@@ -29,33 +37,87 @@ export default function HomePage() {
   const [source, setSource] = useState<SourceVideo | null>(null);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [knowledgeMap, setKnowledgeMap] = useState<KnowledgeMap | null>(null);
+  const [providerLabel, setProviderLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const hits = useMemo(
-    () => searchTranscript(segments, query),
-    [segments, query],
-  );
+  const hits = useMemo(() => searchTranscript(segments, query), [segments, query]);
 
-  async function explore(): Promise<void> {
+  function applyTranscript(parsed: SourceVideo, cues: TranscriptCue[], label: string): void {
+    const normalized = normalizeTranscript(parsed.sourceId, cues);
+    if (normalized.length === 0) throw new Error("The transcript contained no usable timestamped segments.");
+
+    setSource(parsed);
+    setSegments(normalized);
+    setKnowledgeMap(deriveOutline(parsed.sourceId, normalized));
+    setProviderLabel(label);
+    setQuery("");
+  }
+
+  function clearResult(): void {
+    setSource(null);
+    setSegments([]);
+    setKnowledgeMap(null);
+    setProviderLabel(null);
+  }
+
+  async function exploreLive(): Promise<void> {
     setError(null);
     setLoading(true);
 
     try {
       const parsed = parseYouTubeUrl(url);
-      const cues = await transcriptProvider.getTranscript(parsed);
-      const normalized = normalizeTranscript(parsed.sourceId, cues);
-      const map = deriveOutline(parsed.sourceId, normalized);
-
-      setSource(parsed);
-      setSegments(normalized);
-      setKnowledgeMap(map);
-      setQuery("");
+      const response = await fetch("/api/transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: parsed.canonicalUrl, preferredLanguages: ["en"] }),
+      });
+      const payload = await response.json() as LiveTranscriptResponse;
+      if (!response.ok || !payload.cues) {
+        throw new Error(payload.error?.message ?? "Unable to obtain captions from the configured live provider.");
+      }
+      applyTranscript(payload.source ?? parsed, payload.cues, "Official YouTube captions / authorized video");
     } catch (caught) {
-      setSource(null);
-      setSegments([]);
-      setKnowledgeMap(null);
+      clearResult();
       setError(caught instanceof Error ? caught.message : "Unable to explore this source.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function exploreDemo(): Promise<void> {
+    setError(null);
+    setLoading(true);
+
+    try {
+      const parsed = parseYouTubeUrl(url);
+      applyTranscript(parsed, await demoTranscriptProvider.getTranscript(parsed), "Demo fixture / portable core");
+    } catch (caught) {
+      clearResult();
+      setError(caught instanceof Error ? caught.message : "Unable to load the demo transcript.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function importCaptions(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setError(null);
+    setLoading(true);
+    try {
+      const parsed = parseYouTubeUrl(url);
+      const extension = file.name.toLowerCase().split(".").pop();
+      const cues = parseCaptionText(
+        await file.text(),
+        extension === "srt" ? "srt" : extension === "vtt" ? "vtt" : undefined,
+      );
+      applyTranscript(parsed, cues, `Imported captions / ${file.name}`);
+    } catch (caught) {
+      clearResult();
+      setError(caught instanceof Error ? caught.message : "Unable to import this caption file.");
     } finally {
       setLoading(false);
     }
@@ -67,35 +129,30 @@ export default function HomePage() {
         <div>
           <p className={styles.eyebrow}>Projectr / YouTube Knowledge Explorer</p>
           <h1>Turn a long video into navigable knowledge.</h1>
-          <p className={styles.lede}>
-            Start with the source. Preserve timestamps. Search the transcript. Build a deterministic outline before adding AI enrichment.
-          </p>
+          <p className={styles.lede}>Start with the source. Preserve timestamps. Search the transcript. Build a deterministic outline before adding AI enrichment.</p>
         </div>
-        <span className={styles.prototypeBadge}>Core prototype</span>
+        <span className={styles.prototypeBadge}>Portable core + adapters</span>
       </header>
 
       <section className={styles.ingest} aria-labelledby="ingest-heading">
         <div>
           <h2 id="ingest-heading">Explore a YouTube source</h2>
-          <p>
-            This slice validates the portable Projectr core. It currently uses a fixture transcript behind a replaceable provider interface.
-          </p>
+          <p>Live access uses the official YouTube captions API for videos the authenticated account is authorized to manage. Other lawful transcript material can enter through VTT/SRT import.</p>
         </div>
         <div className={styles.ingestControls}>
           <label className={styles.inputLabel} htmlFor="youtube-url">YouTube URL</label>
           <div className={styles.inputRow}>
-            <input
-              id="youtube-url"
-              value={url}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setUrl(event.target.value)}
-              placeholder="https://www.youtube.com/watch?v=..."
-              inputMode="url"
-              autoComplete="off"
-            />
-            <button type="button" onClick={explore} disabled={loading}>
-              {loading ? "Loading..." : "Explore"}
-            </button>
+            <input id="youtube-url" value={url} onChange={(event: ChangeEvent<HTMLInputElement>) => setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." inputMode="url" autoComplete="off" />
+            <button type="button" onClick={exploreLive} disabled={loading}>{loading ? "Loading..." : "Try live captions"}</button>
           </div>
+          <div className={styles.inputRow} style={{ marginTop: 10 }}>
+            <button type="button" onClick={exploreDemo} disabled={loading}>Run demo core</button>
+            <label className={styles.inputLabel} style={{ margin: 0, alignSelf: "center" }}>
+              Import VTT/SRT
+              <input type="file" accept=".vtt,.srt,text/vtt,application/x-subrip,text/plain" onChange={importCaptions} disabled={loading} style={{ marginLeft: 8 }} />
+            </label>
+          </div>
+          <p>Projectr does not scrape the YouTube watch page. Transcript acquisition remains a replaceable adapter.</p>
           {error ? <p className={styles.error} role="alert">{error}</p> : null}
         </div>
       </section>
@@ -103,36 +160,22 @@ export default function HomePage() {
       {source && knowledgeMap ? (
         <>
           <section className={styles.sourceBar} aria-label="Loaded source">
-            <div>
-              <span className={styles.statusDot} aria-hidden="true" />
-              <strong>Source loaded:</strong> {source.sourceId}
-            </div>
-            <div className={styles.fixtureNotice}>Fixture transcript / live adapter pending</div>
+            <div><span className={styles.statusDot} aria-hidden="true" /><strong>Source loaded:</strong> {source.sourceId}</div>
+            <div className={styles.fixtureNotice}>{providerLabel}</div>
           </section>
 
           <section className={styles.workspace}>
             <aside className={styles.outlinePanel} aria-labelledby="outline-heading">
               <div className={styles.panelHeading}>
-                <div>
-                  <p className={styles.panelKicker}>Knowledge map</p>
-                  <h2 id="outline-heading">Deterministic outline</h2>
-                </div>
+                <div><p className={styles.panelKicker}>Knowledge map</p><h2 id="outline-heading">Deterministic outline</h2></div>
                 <span>{knowledgeMap.topics.length} sections</span>
               </div>
-
               <ol className={styles.topicList}>
                 {knowledgeMap.topics.map((topic) => (
                   <li key={topic.id}>
-                    <a
-                      href={youtubeTimestampUrl(source, topic.startSeconds)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
+                    <a href={youtubeTimestampUrl(source, topic.startSeconds)} target="_blank" rel="noreferrer">
                       <span className={styles.timestamp}>{formatTimestamp(topic.startSeconds)}</span>
-                      <span>
-                        <strong>{topic.title}</strong>
-                        <small>{topic.keywords.join(" · ")}</small>
-                      </span>
+                      <span><strong>{topic.title}</strong><small>{topic.keywords.join(" · ")}</small></span>
                     </a>
                   </li>
                 ))}
@@ -141,58 +184,32 @@ export default function HomePage() {
 
             <section className={styles.transcriptPanel} aria-labelledby="transcript-heading">
               <div className={styles.panelHeading}>
-                <div>
-                  <p className={styles.panelKicker}>Source transcript</p>
-                  <h2 id="transcript-heading">Search and jump</h2>
-                </div>
+                <div><p className={styles.panelKicker}>Source transcript</p><h2 id="transcript-heading">Search and jump</h2></div>
                 <span>{segments.length} segments</span>
               </div>
-
               <label className={styles.searchLabel} htmlFor="transcript-search">Search transcript</label>
-              <input
-                id="transcript-search"
-                className={styles.searchInput}
-                value={query}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)}
-                placeholder="Try: source, transcript, provider..."
-              />
-
+              <input id="transcript-search" className={styles.searchInput} value={query} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)} placeholder="Search words or phrases..." />
               <div className={styles.segmentList}>
                 {(query ? hits : segments).map((item) => {
-                  const startSeconds = item.startSeconds;
                   const key = "segmentId" in item ? item.segmentId : item.id;
-                  return (
-                    <article className={styles.segment} key={key}>
-                      <a
-                        className={styles.timestampLink}
-                        href={youtubeTimestampUrl(source, startSeconds)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {formatTimestamp(startSeconds)}
-                      </a>
-                      <p>{item.text}</p>
-                    </article>
-                  );
+                  return <article className={styles.segment} key={key}>
+                    <a className={styles.timestampLink} href={youtubeTimestampUrl(source, item.startSeconds)} target="_blank" rel="noreferrer">{formatTimestamp(item.startSeconds)}</a>
+                    <p>{item.text}</p>
+                  </article>;
                 })}
-                {query && hits.length === 0 ? (
-                  <p className={styles.empty}>No matching transcript segments.</p>
-                ) : null}
+                {query && hits.length === 0 ? <p className={styles.empty}>No matching transcript segments.</p> : null}
               </div>
             </section>
           </section>
         </>
       ) : (
         <section className={styles.emptyState}>
-          <div>
-            <p className={styles.panelKicker}>First vertical slice</p>
-            <h2>The framework is the shell, not the product.</h2>
-          </div>
+          <div><p className={styles.panelKicker}>Adapter boundary intact</p><h2>One knowledge model, multiple transcript sources.</h2></div>
           <ul>
-            <li>Portable JSON contracts</li>
-            <li>Pure URL and transcript transformations</li>
-            <li>Replaceable transcript provider</li>
-            <li>No AI, database, or cloud dependency in the core</li>
+            <li>Official OAuth captions for authorized videos</li>
+            <li>Local VTT/SRT import for other lawful transcript sources</li>
+            <li>Demo fixture for core development</li>
+            <li>No scraper, AI SDK, database, or cloud dependency in the core</li>
           </ul>
         </section>
       )}

@@ -12,7 +12,7 @@ Portable JSON contracts live in `contracts/projectr`. Executable domain logic li
 
 ## Current vertical slice
 
-Implemented behavior includes YouTube URL parsing, portable source metadata, transcript normalization/search, deterministic outline generation, timestamp navigation, official authorized-caption acquisition, VTT/SRT import, browser-local persistence, and versioned Projectr package import/export.
+Implemented behavior includes YouTube URL parsing, portable source metadata, transcript normalization/exact search, deterministic outline generation, portable concept enrichment, concept-linked evidence retrieval, timestamp navigation, official authorized-caption acquisition, VTT/SRT import, browser-local persistence, and versioned Projectr package import/export.
 
 ## Source metadata
 
@@ -30,9 +30,22 @@ Configure either `PROJECTR_YOUTUBE_API_KEY` or `PROJECTR_YOUTUBE_OAUTH_ACCESS_TO
 
 Projectr deliberately does not scrape the YouTube watch page. The official captions API requires OAuth and sufficient permission for the target video's caption tracks. For other lawful transcript sources, pair the YouTube URL with a `.vtt` or `.srt` file.
 
+## Knowledge enrichment and retrieval
+
+AI is an adapter choice, not a Projectr primitive. The core defines two async ports:
+
+```text
+KnowledgeEnricher.enrich(source + transcript + knowledge map) -> KnowledgeEnrichment
+KnowledgeSearcher.search(query + evidence + optional enrichment) -> KnowledgeSearchHit[]
+```
+
+`KnowledgeEnrichment` contains portable concepts linked back to the transcript segments and outline topics that support them. The first adapter is deterministic: it turns outline topics and repeated transcript terms into concepts, then ranks direct transcript matches together with concept-linked evidence.
+
+That means the product has an executable enrichment/search path without an embeddings service or LLM. A later embeddings, vector-index, local-model, or hosted-LLM adapter can implement the same ports without changing persisted Projectr artifacts or UI use cases.
+
 ## Persistence
 
-`SavedExploration` is the portable persisted artifact. It contains the enriched `SourceVideo`, normalized transcript segments, knowledge map, provider provenance, schema version, and save timestamp.
+`SavedExploration` is the portable persisted artifact. It contains the enriched `SourceVideo`, normalized transcript segments, knowledge map, optional portable knowledge enrichment, provider provenance, schema version, and save timestamp.
 
 ```text
 ExplorationRepository
@@ -41,6 +54,8 @@ ExplorationRepository
   list()
   remove(id)
 ```
+
+The shared admissibility check rejects enrichment whose source, segment references, or topic references escape the exploration evidence graph. Older v1 snapshots without enrichment remain valid; the new field is optional.
 
 The first implementation uses browser local storage. SQLite, filesystem, IndexedDB, Postgres, DynamoDB, or a remote service can replace it without changing the domain contract.
 
@@ -56,7 +71,7 @@ ProjectrPackage
   exploration: SavedExploration
 ```
 
-`core/projectr/export.ts` creates, serializes, parses, and validates this package. Import uses the same `isSavedExploration` admissibility check as persistence, including source coherence and knowledge-map references back to known transcript segments.
+`core/projectr/export.ts` creates, serializes, parses, and validates this package. Import uses the same `isSavedExploration` admissibility check as persistence, including source coherence, topic references to known transcript segments, and enrichment references to known evidence.
 
 The browser UI can export the loaded exploration or any locally saved exploration and can import a package without automatically persisting it.
 
@@ -81,4 +96,4 @@ npm run dev
 npm run test:core
 ```
 
-The test command uses the repository's existing TypeScript dependency and Node and covers the portable core plus transcript, metadata, persistence, and package-interchange behavior.
+The test command uses the repository's existing TypeScript dependency and Node and covers the portable core plus transcript, metadata, deterministic knowledge enrichment/search, persistence, and package-interchange behavior.

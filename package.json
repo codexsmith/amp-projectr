@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:core": "tsc -p tsconfig.core-tests.json && node .projectr-test-build/tests/core/projectr.test.js && node .projectr-test-build/tests/core/export.test.js && node .projectr-test-build/tests/adapters/transcripts.test.js && node .projectr-test-build/tests/adapters/metadata.test.js && node .projectr-test-build/tests/adapters/persistence.test.js"
+    "test:core": "tsc -p tsconfig.core-tests.json && node .projectr-test-build/tests/core/projectr.test.js && node .projectr-test-build/tests/core/export.test.js && node .projectr-test-build/tests/adapters/transcripts.test.js && node .projectr-test-build/tests/adapters/metadata.test.js && node .projectr-test-build/tests/adapters/knowledge.test.js && node .projectr-test-build/tests/adapters/persistence.test.js"
   },
   "dependencies": {
     "@aws-amplify/ui-react": "^6.1.13",

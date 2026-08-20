@@ -9,5 +9,5 @@
     "rootDir": ".",
     "outDir": ".projectr-test-build"
   },
-  "include": ["core/projectr/**/*.ts", "adapters/transcripts/**/*.ts", "adapters/metadata/**/*.ts", "adapters/persistence/**/*.ts", "tests/core/**/*.ts", "tests/adapters/**/*.ts"]
+  "include": ["core/projectr/**/*.ts", "adapters/transcripts/**/*.ts", "adapters/metadata/**/*.ts", "adapters/knowledge/**/*.ts", "adapters/persistence/**/*.ts", "tests/core/**/*.ts", "tests/adapters/**/*.ts"]
 }

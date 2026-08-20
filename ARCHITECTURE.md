@@ -2,9 +2,9 @@
 
 ## Rule: product contracts precede implementation frameworks
 
-Projectr is not Next.js, Amplify, DynamoDB, Python, a particular AI model, a metadata service, a transcript library, or CorpusForge.
+Projectr is not Next.js, Amplify, DynamoDB, Python, a particular AI model, a metadata service, a transcript library, a vector database, or CorpusForge.
 
-The product model must remain portable across language, UI framework, cloud provider, database, and external-provider changes.
+The product model must remain portable across language, UI framework, cloud provider, database, search implementation, model provider, and external-provider changes.
 
 ```text
 Portable contracts
@@ -15,14 +15,14 @@ Application use cases
       |
 Ports / provider interfaces
       |
-Adapters: UI, metadata, transcript, persistence, interchange, AI, search index, etc.
+Adapters: UI, metadata, transcript, enrichment, search, persistence, interchange, etc.
 ```
 
 ## Current core
 
-`core/projectr` contains plain TypeScript with no imports from Next.js, React, Amplify, AWS, browser storage, database clients, CorpusForge, or AI SDKs.
+`core/projectr` contains plain TypeScript with no imports from Next.js, React, Amplify, AWS, browser storage, database clients, vector stores, CorpusForge, or AI SDKs.
 
-Portable contracts include `SourceVideo`, `SourceMetadata`, `TranscriptSegment`, `KnowledgeMap`, `SearchHit`, `SavedExploration`, and `ProjectrPackage`.
+Portable contracts include `SourceVideo`, `SourceMetadata`, `TranscriptSegment`, `KnowledgeMap`, `SearchHit`, `KnowledgeEnrichment`, `KnowledgeSearchHit`, `SavedExploration`, and `ProjectrPackage`.
 
 ## Metadata boundary
 
@@ -41,6 +41,23 @@ TranscriptProvider.getTranscript(SourceVideo) -> TranscriptCue[]
 
 Current adapters are official YouTube captions for authorized videos, local VTT/SRT import, and a deterministic fixture.
 
+## Knowledge enrichment and search boundary
+
+```text
+KnowledgeEnricher
+  enrich(sourceId + TranscriptSegment[] + KnowledgeMap) -> KnowledgeEnrichment
+
+KnowledgeSearcher
+  search(query + TranscriptSegment[] + KnowledgeMap + optional KnowledgeEnrichment)
+    -> KnowledgeSearchHit[]
+```
+
+The portable enrichment object does not contain model-specific embeddings, SDK response objects, vector-database rows, or prompt structures. It contains concepts and their evidence links: source ID, segment IDs, topic IDs, terms, label, score, and generator provenance.
+
+The first adapter is deterministic. It derives topic concepts from the outline and repeated term concepts from transcript evidence. Its searcher ranks direct lexical matches together with concept-linked evidence, so selecting a topic concept can surface related segments even when a literal query term is absent from that segment.
+
+Future embeddings, vector-index, local-model, hosted-LLM, or hybrid adapters implement the same ports. Model choice is infrastructure.
+
 ## Persistence and admissibility boundary
 
 ```text
@@ -48,6 +65,7 @@ SavedExploration
   = SourceVideo
   + TranscriptSegment[]
   + KnowledgeMap
+  + optional KnowledgeEnrichment
   + provider provenance
   + schema version / saved timestamp
 
@@ -58,9 +76,9 @@ ExplorationRepository
   remove(id)
 ```
 
-`isSavedExploration` is the shared runtime admissibility boundary used by persistence and interchange. It validates schema version, source identity, transcript/source agreement, knowledge-map/source agreement, and topic references to known transcript segments.
+`isSavedExploration` is the shared runtime admissibility boundary used by persistence and interchange. It validates schema version, source identity, transcript/source agreement, knowledge-map/source agreement, topic references to known transcript segments, and enrichment references to known segments/topics. Enrichment cannot escape the exploration evidence graph.
 
-The browser local-storage adapter is only the first persistence implementation. Storage technology is not part of the Projectr ontology.
+The enrichment property is an optional additive v1 field, so existing v1 snapshots remain readable. The browser local-storage adapter is only the first persistence implementation. Storage technology is not part of the Projectr ontology.
 
 ## Interchange boundary
 
@@ -103,12 +121,14 @@ This keeps the dependency direction one-way and makes the same package usable by
 app/ ---------------------------------> core/projectr/
 YouTube metadata adapter ------------> core/projectr/
 YouTube transcript adapter ----------> core/projectr/
+Deterministic knowledge adapter -----> core/projectr/
 Browser persistence adapter ---------> core/projectr/
+Future embedding / LLM adapter ------> core/projectr/
+Future vector-index adapter ---------> core/projectr/
 Future CorpusForge ingest adapter ---> ProjectrPackage
 Future SQL / file / remote adapters --> core/projectr/
-AI enrichment adapter ---------------> core/projectr/
 
-core/projectr/ -X-> Next.js / YouTube API / Amplify / browser APIs / database / CorpusForge / AI SDK
+core/projectr/ -X-> Next.js / YouTube API / Amplify / browser APIs / database / vector DB / CorpusForge / AI SDK
 ```
 
 Provider- and consumer-specific objects terminate at adapter boundaries. New capabilities should preserve this direction.

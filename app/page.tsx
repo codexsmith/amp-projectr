@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import styles from "./page.module.css";
+import {
+  DeterministicKnowledgeEnricher,
+  DeterministicKnowledgeSearcher,
+} from "../adapters/knowledge/deterministic";
 import { BrowserLocalStorageExplorationRepository } from "../adapters/persistence/browser-local-storage";
 import { parseCaptionText } from "../adapters/transcripts/caption-file";
 import {
@@ -14,11 +18,12 @@ import {
   normalizeTranscript,
   parseProjectrPackage,
   parseYouTubeUrl,
-  searchTranscript,
   serializeProjectrPackage,
   youtubeTimestampUrl,
   type ExplorationSummary,
+  type KnowledgeEnrichment,
   type KnowledgeMap,
+  type KnowledgeSearchHit,
   type SavedExploration,
   type SourceVideo,
   type TranscriptCue,
@@ -27,6 +32,8 @@ import {
 
 const demoTranscriptProvider = new DemoTranscriptProvider();
 const explorationRepository = new BrowserLocalStorageExplorationRepository();
+const knowledgeEnricher = new DeterministicKnowledgeEnricher();
+const knowledgeSearcher = new DeterministicKnowledgeSearcher();
 
 interface LiveTranscriptResponse {
   source?: SourceVideo;
@@ -77,6 +84,8 @@ export default function HomePage() {
   const [source, setSource] = useState<SourceVideo | null>(null);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [knowledgeMap, setKnowledgeMap] = useState<KnowledgeMap | null>(null);
+  const [enrichment, setEnrichment] = useState<KnowledgeEnrichment | null>(null);
+  const [hits, setHits] = useState<KnowledgeSearchHit[]>([]);
   const [providerLabel, setProviderLabel] = useState<string | null>(null);
   const [metadataMessage, setMetadataMessage] = useState<string | null>(null);
   const [savedExplorations, setSavedExplorations] = useState<ExplorationSummary[]>([]);
@@ -84,15 +93,45 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const hits = useMemo(() => searchTranscript(segments, query), [segments, query]);
   const currentSavedId = source ? explorationIdFor(source) : null;
   const currentIsSaved = currentSavedId
     ? savedExplorations.some((item) => item.id === currentSavedId)
     : false;
+  const conceptById = useMemo(
+    () => new Map((enrichment?.concepts ?? []).map((concept) => [concept.id, concept])),
+    [enrichment],
+  );
+  const visibleConcepts = useMemo(() => {
+    const concepts = enrichment?.concepts ?? [];
+    const terms = concepts.filter((concept) => concept.kind === "term");
+    return (terms.length > 0 ? terms : concepts).slice(0, 12);
+  }, [enrichment]);
 
   useEffect(() => {
     void refreshSavedExplorations();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!query.trim() || !source || !knowledgeMap) {
+      setHits([]);
+      return () => { active = false; };
+    }
+
+    void knowledgeSearcher.search({
+      sourceId: source.sourceId,
+      transcriptSegments: segments,
+      knowledgeMap,
+      enrichment: enrichment ?? undefined,
+      query,
+    }).then((results) => {
+      if (active) setHits(results);
+    }).catch(() => {
+      if (active) setHits([]);
+    });
+
+    return () => { active = false; };
+  }, [query, source, segments, knowledgeMap, enrichment]);
 
   async function refreshSavedExplorations(): Promise<void> {
     try {
@@ -124,25 +163,39 @@ export default function HomePage() {
     }
   }
 
-  function applyTranscript(parsed: SourceVideo, cues: TranscriptCue[], label: string): void {
+  async function deriveKnowledge(
+    sourceId: string,
+    transcriptSegments: TranscriptSegment[],
+    map: KnowledgeMap,
+  ): Promise<KnowledgeEnrichment> {
+    return knowledgeEnricher.enrich({ sourceId, transcriptSegments, knowledgeMap: map });
+  }
+
+  async function applyTranscript(parsed: SourceVideo, cues: TranscriptCue[], label: string): Promise<void> {
     const normalized = normalizeTranscript(parsed.sourceId, cues);
     if (normalized.length === 0) {
       throw new Error("The transcript contained no usable timestamped segments.");
     }
 
+    const map = deriveOutline(parsed.sourceId, normalized);
+    const derivedEnrichment = await deriveKnowledge(parsed.sourceId, normalized, map);
     setSource(parsed);
     setSegments(normalized);
-    setKnowledgeMap(deriveOutline(parsed.sourceId, normalized));
+    setKnowledgeMap(map);
+    setEnrichment(derivedEnrichment);
     setProviderLabel(label);
     setActivityMessage(null);
     setQuery("");
   }
 
-  function applySavedExploration(saved: SavedExploration, message: string): void {
+  async function applySavedExploration(saved: SavedExploration, message: string): Promise<void> {
+    const savedEnrichment = saved.enrichment
+      ?? await deriveKnowledge(saved.source.sourceId, saved.transcriptSegments, saved.knowledgeMap);
     setUrl(saved.source.canonicalUrl);
     setSource(saved.source);
     setSegments(saved.transcriptSegments);
     setKnowledgeMap(saved.knowledgeMap);
+    setEnrichment(savedEnrichment);
     setProviderLabel(saved.providerLabel ?? "Portable Projectr exploration");
     setMetadataMessage(null);
     setActivityMessage(message);
@@ -153,6 +206,8 @@ export default function HomePage() {
     setSource(null);
     setSegments([]);
     setKnowledgeMap(null);
+    setEnrichment(null);
+    setHits([]);
     setProviderLabel(null);
     setActivityMessage(null);
   }
@@ -165,6 +220,7 @@ export default function HomePage() {
       source,
       transcriptSegments: segments,
       knowledgeMap,
+      enrichment: enrichment ?? undefined,
       savedAt,
       providerLabel: providerLabel ?? undefined,
     });
@@ -204,7 +260,7 @@ export default function HomePage() {
           payload.error?.message ?? "Unable to obtain captions from the configured live provider.",
         );
       }
-      applyTranscript(enriched, payload.cues, "Official YouTube captions / authorized video");
+      await applyTranscript(enriched, payload.cues, "Official YouTube captions / authorized video");
     } catch (caught) {
       clearResult();
       setError(caught instanceof Error ? caught.message : "Unable to explore this source.");
@@ -220,7 +276,7 @@ export default function HomePage() {
     try {
       const parsed = parseYouTubeUrl(url);
       const enriched = await enrichSource(parsed);
-      applyTranscript(
+      await applyTranscript(
         enriched,
         await demoTranscriptProvider.getTranscript(enriched),
         "Demo fixture / portable core",
@@ -248,7 +304,7 @@ export default function HomePage() {
         await file.text(),
         extension === "srt" ? "srt" : extension === "vtt" ? "vtt" : undefined,
       );
-      applyTranscript(enriched, cues, `Imported captions / ${file.name}`);
+      await applyTranscript(enriched, cues, `Imported captions / ${file.name}`);
     } catch (caught) {
       clearResult();
       setError(caught instanceof Error ? caught.message : "Unable to import this caption file.");
@@ -266,7 +322,7 @@ export default function HomePage() {
     setLoading(true);
     try {
       const projectrPackage = parseProjectrPackage(await file.text());
-      applySavedExploration(
+      await applySavedExploration(
         projectrPackage.exploration,
         `Loaded portable package exported ${formatSavedAt(projectrPackage.exportedAt)}. Local storage is unchanged.`,
       );
@@ -306,7 +362,7 @@ export default function HomePage() {
         await refreshSavedExplorations();
         throw new Error("That saved exploration is no longer available.");
       }
-      applySavedExploration(saved, `Loaded local snapshot saved ${formatSavedAt(saved.savedAt)}.`);
+      await applySavedExploration(saved, `Loaded local snapshot saved ${formatSavedAt(saved.savedAt)}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to load this saved exploration.");
     }
@@ -346,7 +402,7 @@ export default function HomePage() {
         <div>
           <p className={styles.eyebrow}>Projectr / YouTube Knowledge Explorer</p>
           <h1>Turn a long video into navigable knowledge.</h1>
-          <p className={styles.lede}>Start with the source. Preserve timestamps. Search the transcript. Build a deterministic outline before adding AI enrichment.</p>
+          <p className={styles.lede}>Start with the source. Preserve timestamps. Search exact evidence and concept-linked context before choosing any AI provider.</p>
         </div>
         <span className={styles.prototypeBadge}>Portable core + adapters</span>
       </header>
@@ -369,7 +425,7 @@ export default function HomePage() {
               <input type="file" accept=".vtt,.srt,text/vtt,application/x-subrip,text/plain" onChange={importCaptions} disabled={loading} style={{ marginLeft: 8 }} />
             </label>
           </div>
-          <p>Projectr does not scrape the YouTube watch page. Acquisition, metadata, persistence, and interchange remain replaceable boundaries.</p>
+          <p>Projectr does not scrape the YouTube watch page. Acquisition, metadata, enrichment, search, persistence, and interchange remain replaceable boundaries.</p>
           {error ? <p className={styles.error} role="alert">{error}</p> : null}
         </div>
       </section>
@@ -391,7 +447,7 @@ export default function HomePage() {
               <article className={styles.savedItem} key={item.id}>
                 <div>
                   <strong>{item.source.title ?? item.source.sourceId}</strong>
-                  <p>{item.source.creatorName ? `${item.source.creatorName} · ` : ""}{item.source.durationSeconds !== undefined ? `${formatDuration(item.source.durationSeconds)} · ` : ""}{item.segmentCount} segments · {item.topicCount} topics</p>
+                  <p>{item.source.creatorName ? `${item.source.creatorName} · ` : ""}{item.source.durationSeconds !== undefined ? `${formatDuration(item.source.durationSeconds)} · ` : ""}{item.segmentCount} segments · {item.topicCount} topics · {item.conceptCount} concepts</p>
                   <small>{formatSavedAt(item.savedAt)}{item.providerLabel ? ` · ${item.providerLabel}` : ""}</small>
                 </div>
                 <div className={styles.savedActions}>
@@ -418,7 +474,7 @@ export default function HomePage() {
             <div className={styles.sourceActions}>
               <span className={styles.fixtureNotice}>{providerLabel}</span>
               <button type="button" className={styles.secondaryButton} onClick={exportCurrent}>Export package</button>
-              <button type="button" className={styles.saveButton} onClick={saveCurrent}>{currentIsSaved ? "Save new snapshot" : "Save locally"}</button>
+              <button type="button" className={styles.saveButton} onClick={saveCurrent}>{currentIsSaved ? "Update saved copy" : "Save locally"}</button>
             </div>
           </section>
           {metadataMessage ? <p className={styles.metadataMessage} role="status">Metadata: {metadataMessage}</p> : null}
@@ -435,29 +491,51 @@ export default function HomePage() {
                   <li key={topic.id}><a href={youtubeTimestampUrl(source, topic.startSeconds)} target="_blank" rel="noreferrer"><span className={styles.timestamp}>{formatTimestamp(topic.startSeconds)}</span><span><strong>{topic.title}</strong><small>{topic.keywords.join(" · ")}</small></span></a></li>
                 ))}
               </ol>
+
+              <div className={styles.conceptSection}>
+                <div className={styles.conceptHeading}>
+                  <div><p className={styles.panelKicker}>Enrichment boundary</p><h3>Concept layer</h3></div>
+                  <span>{enrichment?.concepts.length ?? 0} concepts</span>
+                </div>
+                <p className={styles.conceptNote}>Generated deterministically today; the same portable contract can later be produced by an embedding or LLM adapter.</p>
+                <div className={styles.conceptList}>
+                  {visibleConcepts.map((concept) => (
+                    <button type="button" key={concept.id} onClick={() => setQuery(concept.label)} title={`Search evidence linked to ${concept.label}`}>
+                      {concept.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </aside>
 
             <section className={styles.transcriptPanel} aria-labelledby="transcript-heading">
               <div className={styles.panelHeading}>
-                <div><p className={styles.panelKicker}>Source transcript</p><h2 id="transcript-heading">Search and jump</h2></div>
+                <div><p className={styles.panelKicker}>Evidence retrieval</p><h2 id="transcript-heading">Search and jump</h2></div>
                 <span>{segments.length} segments</span>
               </div>
-              <label className={styles.searchLabel} htmlFor="transcript-search">Search transcript</label>
-              <input id="transcript-search" className={styles.searchInput} value={query} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)} placeholder="Search words or phrases..." />
+              <label className={styles.searchLabel} htmlFor="transcript-search">Search text or concepts</label>
+              <input id="transcript-search" className={styles.searchInput} value={query} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)} placeholder="Search words, phrases, or concepts..." />
+              <p className={styles.searchNote}>Direct transcript matches are ranked with concept-linked evidence. No model call is required for the current adapter.</p>
               <div className={styles.segmentList}>
                 {(query ? hits : segments).map((item) => {
                   const key = "segmentId" in item ? item.segmentId : item.id;
-                  return <article className={styles.segment} key={key}><a className={styles.timestampLink} href={youtubeTimestampUrl(source, item.startSeconds)} target="_blank" rel="noreferrer">{formatTimestamp(item.startSeconds)}</a><p>{item.text}</p></article>;
+                  const matchedConceptLabels = "matchedConceptIds" in item
+                    ? item.matchedConceptIds
+                      .map((id) => conceptById.get(id)?.label)
+                      .filter((label): label is string => Boolean(label))
+                      .slice(0, 3)
+                    : [];
+                  return <article className={styles.segment} key={key}><a className={styles.timestampLink} href={youtubeTimestampUrl(source, item.startSeconds)} target="_blank" rel="noreferrer">{formatTimestamp(item.startSeconds)}</a><div><p>{item.text}</p>{matchedConceptLabels.length > 0 ? <small className={styles.matchMeta}>Concept links: {matchedConceptLabels.join(" · ")}</small> : null}</div></article>;
                 })}
-                {query && hits.length === 0 ? <p className={styles.empty}>No matching transcript segments.</p> : null}
+                {query && hits.length === 0 ? <p className={styles.empty}>No matching transcript or concept-linked evidence.</p> : null}
               </div>
             </section>
           </section>
         </>
       ) : (
         <section className={styles.emptyState}>
-          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition, metadata, persistence, and interchange mechanisms.</h2></div>
-          <ul><li>Official source metadata behind `SourceMetadataProvider`</li><li>Official OAuth captions or local VTT/SRT import</li><li>Browser-local persistence behind `ExplorationRepository`</li><li>Versioned Projectr JSON packages for external consumers such as CorpusForge</li></ul>
+          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition, metadata, enrichment, search, persistence, and interchange mechanisms.</h2></div>
+          <ul><li>Official source metadata behind `SourceMetadataProvider`</li><li>Official OAuth captions or local VTT/SRT import</li><li>Portable concepts behind `KnowledgeEnricher`</li><li>Replaceable retrieval behind `KnowledgeSearcher`</li><li>Browser-local persistence behind `ExplorationRepository`</li><li>Versioned Projectr JSON packages for external consumers such as CorpusForge</li></ul>
         </section>
       )}
     </main>

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "knowledge-enrichment.schema.json",
+  "title": "KnowledgeEnrichment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sourceId", "generatedBy", "concepts"],
+  "properties": {
+    "sourceId": { "type": "string", "minLength": 1 },
+    "generatedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator"],
+      "properties": {
+        "generator": { "type": "string", "minLength": 1 },
+        "version": { "type": "string" }
+      }
+    },
+    "concepts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sourceId", "kind", "label", "terms", "segmentIds", "topicIds", "score"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "sourceId": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["topic", "term"] },
+          "label": { "type": "string", "minLength": 1 },
+          "terms": { "type": "array", "items": { "type": "string" } },
+          "segmentIds": { "type": "array", "items": { "type": "string" } },
+          "topicIds": { "type": "array", "items": { "type": "string" } },
+          "score": { "type": "number", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

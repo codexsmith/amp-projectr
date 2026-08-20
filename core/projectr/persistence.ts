@@ -1,4 +1,11 @@
-import type { KnowledgeMap, SourceVideo, TopicNode, TranscriptSegment } from "./types";
+import { isKnowledgeEnrichment } from "./knowledge";
+import type {
+  KnowledgeEnrichment,
+  KnowledgeMap,
+  SourceVideo,
+  TopicNode,
+  TranscriptSegment,
+} from "./types";
 
 export const SAVED_EXPLORATION_SCHEMA_VERSION = 1 as const;
 
@@ -9,6 +16,7 @@ export interface SavedExploration {
   source: SourceVideo;
   transcriptSegments: TranscriptSegment[];
   knowledgeMap: KnowledgeMap;
+  enrichment?: KnowledgeEnrichment;
   providerLabel?: string;
 }
 
@@ -18,6 +26,7 @@ export interface ExplorationSummary {
   source: SourceVideo;
   segmentCount: number;
   topicCount: number;
+  conceptCount: number;
   providerLabel?: string;
 }
 
@@ -79,6 +88,19 @@ function isTopicNode(value: unknown, segmentIds: Set<string>): value is TopicNod
     && isStringArray(value.keywords);
 }
 
+function copyEnrichment(enrichment: KnowledgeEnrichment): KnowledgeEnrichment {
+  return {
+    sourceId: enrichment.sourceId,
+    generatedBy: { ...enrichment.generatedBy },
+    concepts: enrichment.concepts.map((concept) => ({
+      ...concept,
+      terms: [...concept.terms],
+      segmentIds: [...concept.segmentIds],
+      topicIds: [...concept.topicIds],
+    })),
+  };
+}
+
 export function explorationIdFor(source: SourceVideo): string {
   return `${source.kind}:${source.sourceId}`;
 }
@@ -101,6 +123,17 @@ export function isSavedExploration(value: unknown): value is SavedExploration {
   const segmentIds = new Set(value.transcriptSegments.map((segment) => segment.id));
   if (!value.knowledgeMap.topics.every((topic) => isTopicNode(topic, segmentIds))) return false;
 
+  const topicIds = new Set(value.knowledgeMap.topics.map((topic) => topic.id));
+  if (value.enrichment !== undefined) {
+    if (!isKnowledgeEnrichment(value.enrichment)
+      || value.enrichment.sourceId !== source.sourceId
+      || value.enrichment.concepts.some((concept) =>
+        concept.segmentIds.some((id) => !segmentIds.has(id))
+        || concept.topicIds.some((id) => !topicIds.has(id)))) {
+      return false;
+    }
+  }
+
   return value.providerLabel === undefined || typeof value.providerLabel === "string";
 }
 
@@ -108,6 +141,7 @@ export function createSavedExploration(input: {
   source: SourceVideo;
   transcriptSegments: TranscriptSegment[];
   knowledgeMap: KnowledgeMap;
+  enrichment?: KnowledgeEnrichment;
   savedAt: string;
   providerLabel?: string;
 }): SavedExploration {
@@ -125,6 +159,7 @@ export function createSavedExploration(input: {
         keywords: [...topic.keywords],
       })),
     },
+    enrichment: input.enrichment ? copyEnrichment(input.enrichment) : undefined,
     providerLabel: input.providerLabel,
   };
 
@@ -141,6 +176,7 @@ export function summarizeExploration(exploration: SavedExploration): Exploration
     source: { ...exploration.source },
     segmentCount: exploration.transcriptSegments.length,
     topicCount: exploration.knowledgeMap.topics.length,
+    conceptCount: exploration.enrichment?.concepts.length ?? 0,
     providerLabel: exploration.providerLabel,
   };
 }

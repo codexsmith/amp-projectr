@@ -50,3 +50,36 @@ export interface SearchHit {
   score: number;
   matchedTerms: string[];
 }
+
+export type KnowledgeConceptKind = "topic" | "term";
+
+export interface KnowledgeConcept {
+  id: string;
+  sourceId: string;
+  kind: KnowledgeConceptKind;
+  label: string;
+  terms: string[];
+  segmentIds: string[];
+  topicIds: string[];
+  score: number;
+}
+
+export interface KnowledgeEnrichment {
+  sourceId: string;
+  generatedBy: {
+    generator: string;
+    version?: string;
+  };
+  concepts: KnowledgeConcept[];
+}
+
+export interface KnowledgeSearchHit {
+  segmentId: string;
+  startSeconds: number;
+  endSeconds: number;
+  text: string;
+  score: number;
+  matchedTerms: string[];
+  matchedConceptIds: string[];
+  topicIds: string[];
+}

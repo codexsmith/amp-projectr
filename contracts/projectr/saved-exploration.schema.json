@@ -15,6 +15,7 @@
       "items": { "$ref": "transcript-segment.schema.json" }
     },
     "knowledgeMap": { "$ref": "knowledge-map.schema.json" },
+    "enrichment": { "$ref": "knowledge-enrichment.schema.json" },
     "providerLabel": { "type": "string" }
   }
 }

@@ -83,3 +83,34 @@ export interface KnowledgeSearchHit {
   matchedConceptIds: string[];
   topicIds: string[];
 }
+
+export type KnowledgeAnswerStatus = "answered" | "insufficient_evidence";
+
+export interface KnowledgeAnswerEvidence {
+  segmentId: string;
+  startSeconds: number;
+  endSeconds: number;
+  excerpt: string;
+  score: number;
+  matchedTerms: string[];
+  matchedConceptIds: string[];
+  topicIds: string[];
+}
+
+export interface KnowledgeAnswerClaim {
+  id: string;
+  text: string;
+  evidenceSegmentIds: string[];
+}
+
+export interface KnowledgeAnswer {
+  sourceId: string;
+  question: string;
+  status: KnowledgeAnswerStatus;
+  claims: KnowledgeAnswerClaim[];
+  evidence: KnowledgeAnswerEvidence[];
+  generatedBy: {
+    generator: string;
+    version?: string;
+  };
+}

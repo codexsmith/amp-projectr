@@ -5,6 +5,7 @@ export * from "./outline";
 export * from "./providers";
 export * from "./metadata";
 export * from "./knowledge";
+export * from "./answer";
 export * from "./persistence";
 export * from "./export";
 export * from "./demo";

@@ -15,14 +15,14 @@ Application use cases
       |
 Ports / provider interfaces
       |
-Adapters: UI, metadata, transcript, enrichment, search, persistence, interchange, etc.
+Adapters: UI, metadata, transcript, enrichment, search, answering, persistence, interchange, etc.
 ```
 
 ## Current core
 
 `core/projectr` contains plain TypeScript with no imports from Next.js, React, Amplify, AWS, browser storage, database clients, vector stores, CorpusForge, or AI SDKs.
 
-Portable contracts include `SourceVideo`, `SourceMetadata`, `TranscriptSegment`, `KnowledgeMap`, `SearchHit`, `KnowledgeEnrichment`, `KnowledgeSearchHit`, `SavedExploration`, and `ProjectrPackage`.
+Portable contracts include `SourceVideo`, `SourceMetadata`, `TranscriptSegment`, `KnowledgeMap`, `SearchHit`, `KnowledgeEnrichment`, `KnowledgeSearchHit`, `KnowledgeAnswer`, `SavedExploration`, and `ProjectrPackage`.
 
 ## Metadata boundary
 
@@ -57,6 +57,22 @@ The portable enrichment object does not contain model-specific embeddings, SDK r
 The first adapter is deterministic. It derives topic concepts from the outline and repeated term concepts from transcript evidence. Its searcher ranks direct lexical matches together with concept-linked evidence, so selecting a topic concept can surface related segments even when a literal query term is absent from that segment.
 
 Future embeddings, vector-index, local-model, hosted-LLM, or hybrid adapters implement the same ports. Model choice is infrastructure.
+
+## Evidence-bound answer boundary
+
+```text
+KnowledgeAnswerer
+  answer(question + transcript + map + optional enrichment) -> KnowledgeAnswer
+
+answerWithEvidence
+  invoke provider -> validate source/evidence closure -> return KnowledgeAnswer
+```
+
+A `KnowledgeAnswer` contains claims and evidence rather than an unstructured chat string. An answered claim must reference at least one evidence segment. The core validation boundary requires every evidence segment to exist in the current transcript, carry the exact source excerpt and timestamps, and reference only known topics and concepts. `insufficient_evidence` contains no claims and no invented evidence.
+
+The first adapter is deterministic and extractive: it delegates retrieval to `KnowledgeSearcher`, converts the highest-ranked source segments into claims, and returns insufficient evidence when retrieval is empty. A future LLM may synthesize claim text behind `KnowledgeAnswerer`, but it cannot bypass `answerWithEvidence` without leaving the supported application boundary.
+
+Answers are derived runtime results, not persisted source artifacts in v1. This avoids turning transient model output into source truth and keeps `SavedExploration` focused on recomputable evidence and enrichment.
 
 ## Persistence and admissibility boundary
 
@@ -122,6 +138,7 @@ app/ ---------------------------------> core/projectr/
 YouTube metadata adapter ------------> core/projectr/
 YouTube transcript adapter ----------> core/projectr/
 Deterministic knowledge adapter -----> core/projectr/
+Deterministic answer adapter --------> core/projectr/
 Browser persistence adapter ---------> core/projectr/
 Future embedding / LLM adapter ------> core/projectr/
 Future vector-index adapter ---------> core/projectr/

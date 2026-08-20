@@ -4,18 +4,18 @@
 .eyebrow, .panelKicker { margin: 0; text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.73rem; font-weight: 800; color: #5d45b8; }
 .lede { max-width: 760px; margin: 0; color: #52525b; font-size: 1.05rem; line-height: 1.65; }
 .prototypeBadge, .fixtureNotice { display: inline-flex; align-items: center; border: 1px solid #d9d4f7; background: #f7f5ff; color: #49358f; border-radius: 999px; padding: 8px 12px; font-size: 0.76rem; font-weight: 700; white-space: nowrap; }
-.ingest, .library, .emptyState, .sourceBar, .outlinePanel, .transcriptPanel { background: #fff; border: 1px solid #e5e4e8; border-radius: 18px; box-shadow: 0 16px 50px rgba(24,24,27,.05); }
+.ingest, .library, .emptyState, .sourceBar, .askPanel, .outlinePanel, .transcriptPanel { background: #fff; border: 1px solid #e5e4e8; border-radius: 18px; box-shadow: 0 16px 50px rgba(24,24,27,.05); }
 .ingest { display: grid; grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); gap: 32px; padding: 24px; }
-.library { margin-top: 18px; padding: 20px; }
-.ingest h2, .library h2, .emptyState h2, .panelHeading h2 { margin: 4px 0 8px; letter-spacing: -0.025em; }
+.library, .askPanel { margin-top: 18px; padding: 20px; }
+.ingest h2, .library h2, .askPanel h2, .emptyState h2, .panelHeading h2 { margin: 4px 0 8px; letter-spacing: -0.025em; }
 .ingest p { color: #71717a; line-height: 1.55; margin-bottom: 0; }
 .ingestControls { align-self: center; }
 .inputLabel, .searchLabel { display: block; margin-bottom: 8px; font-size: .78rem; font-weight: 800; color: #3f3f46; }
-.inputRow { display: flex; gap: 10px; }
-.inputRow input, .searchInput { width: 100%; box-sizing: border-box; border: 1px solid #d4d4d8; border-radius: 10px; padding: 12px 14px; background: #fff; color: #18181b; font: inherit; outline: none; }
-.inputRow input:focus, .searchInput:focus { border-color: #7058c9; box-shadow: 0 0 0 3px rgba(112,88,201,.12); }
-.inputRow button, .saveButton, .secondaryButton, .savedActions button { border: 0; border-radius: 10px; padding: 10px 16px; background: #18181b; color: #fff; font: inherit; font-weight: 800; cursor: pointer; }
-.inputRow button:disabled, .importButton:has(input:disabled) { opacity: .55; cursor: wait; }
+.inputRow, .askForm { display: flex; gap: 10px; }
+.inputRow input, .searchInput, .askForm input { width: 100%; box-sizing: border-box; border: 1px solid #d4d4d8; border-radius: 10px; padding: 12px 14px; background: #fff; color: #18181b; font: inherit; outline: none; }
+.inputRow input:focus, .searchInput:focus, .askForm input:focus { border-color: #7058c9; box-shadow: 0 0 0 3px rgba(112,88,201,.12); }
+.inputRow button, .askForm button, .saveButton, .secondaryButton, .savedActions button { border: 0; border-radius: 10px; padding: 10px 16px; background: #18181b; color: #fff; font: inherit; font-weight: 800; cursor: pointer; }
+.inputRow button:disabled, .askForm button:disabled, .importButton:has(input:disabled) { opacity: .55; cursor: wait; }
 .savedActions .secondaryButton, .sourceActions .secondaryButton { background: #fff; color: #3f3f46; border: 1px solid #d4d4d8; }
 .error { color: #b42318 !important; font-size: .88rem; margin-top: 8px !important; }
 .sourceBar { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 18px; padding: 14px 18px; font-size: .88rem; }
@@ -36,6 +36,19 @@
 .savedItem strong { display: block; }
 .savedItem p, .savedItem small { display: block; margin: 4px 0 0; color: #71717a; font-size: .8rem; }
 .savedActions .removeButton { background: transparent; color: #8f3030; border: 1px solid #ead1d1; }
+.askPanel .panelHeading { margin-bottom: 12px; }
+.askForm button { min-width: 110px; }
+.askNote { margin: 8px 0 0; color: #71717a; font-size: .78rem; line-height: 1.5; }
+.answerCard { margin-top: 16px; border: 1px solid #ded8f5; border-radius: 14px; background: #fbfaff; overflow: hidden; }
+.answerHeader { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #e8e3fb; background: #f8f6ff; }
+.answerHeader strong { font-size: .9rem; }
+.answerHeader span { color: #7058c9; font-size: .74rem; white-space: nowrap; }
+.answerClaims { margin: 0; padding: 8px 18px 14px 38px; }
+.answerClaims li { padding: 8px 0; }
+.answerClaims p { margin: 0; color: #3f3f46; line-height: 1.55; }
+.answerEvidenceLinks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.answerEvidenceLinks a { border: 1px solid #ded8f5; border-radius: 999px; padding: 4px 8px; color: #49358f; background: #fff; text-decoration: none; font-size: .72rem; font-weight: 800; }
+.insufficientAnswer { margin: 14px 0 0; padding: 12px 14px; border: 1px solid #eadfbd; border-radius: 12px; background: #fffaf0; color: #6b5a28; font-size: .84rem; line-height: 1.5; }
 .workspace { display: grid; grid-template-columns: minmax(260px,.75fr) minmax(0,1.5fr); gap: 18px; margin-top: 18px; }
 .outlinePanel, .transcriptPanel { padding: 20px; min-height: 520px; }
 .panelHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
@@ -66,4 +79,4 @@
 .emptyState { margin-top: 18px; padding: 24px; display: flex; justify-content: space-between; gap: 32px; align-items: center; }
 .emptyState h2 { color: #18181b; }
 .emptyState ul { margin: 0; padding-left: 20px; line-height: 1.8; }
-@media (max-width:760px) { .shell { width:min(100% - 20px,1180px); padding-top:28px; } .header,.sourceBar,.sourceActions,.savedItem,.savedActions,.libraryActions,.emptyState { flex-direction:column; align-items:stretch; } .ingest,.workspace { grid-template-columns:1fr; } .inputRow { flex-direction:column; } .inputRow button,.saveButton,.secondaryButton,.savedActions button { min-height:44px; } }
+@media (max-width:760px) { .shell { width:min(100% - 20px,1180px); padding-top:28px; } .header,.sourceBar,.sourceActions,.savedItem,.savedActions,.libraryActions,.answerHeader,.emptyState { flex-direction:column; align-items:stretch; } .ingest,.workspace { grid-template-columns:1fr; } .inputRow,.askForm { flex-direction:column; } .inputRow button,.askForm button,.saveButton,.secondaryButton,.savedActions button { min-height:44px; } }

@@ -12,7 +12,7 @@ Portable JSON contracts live in `contracts/projectr`. Executable domain logic li
 
 ## Current vertical slice
 
-Implemented behavior includes YouTube URL parsing, portable source metadata, transcript normalization/exact search, deterministic outline generation, portable concept enrichment, concept-linked evidence retrieval, timestamp navigation, official authorized-caption acquisition, VTT/SRT import, browser-local persistence, and versioned Projectr package import/export.
+Implemented behavior includes YouTube URL parsing, portable source metadata, transcript normalization/exact search, deterministic outline generation, portable concept enrichment, concept-linked evidence retrieval, evidence-bound question answering, timestamp navigation, official authorized-caption acquisition, VTT/SRT import, browser-local persistence, and versioned Projectr package import/export.
 
 ## Source metadata
 
@@ -24,7 +24,7 @@ SourceMetadataProvider.getMetadata(SourceVideo) -> SourceMetadata | null
 
 The first adapter uses the official YouTube Data API `videos.list` endpoint with `snippet,contentDetails`, translating provider responses into portable title, creator, duration, thumbnail-reference, and publication-time fields.
 
-Configure either `PROJECTR_YOUTUBE_API_KEY` or `PROJECTR_YOUTUBE_OAUTH_ACCESS_TOKEN`. If metadata is unavailable, transcript import/demo processing continues with source identity alone.
+Configure either `PROJECTR_YOUTUBE_API_KEY` or `PROJECTR_YOUTUBE_OAUTH_ACCESS_TOKEN`. If metadata is unavailable or unconfigured, transcript import/demo processing continues with source identity alone.
 
 ## Transcript acquisition
 
@@ -32,7 +32,7 @@ Projectr deliberately does not scrape the YouTube watch page. The official capti
 
 ## Knowledge enrichment and retrieval
 
-AI is an adapter choice, not a Projectr primitive. The core defines two async ports:
+AI is an adapter choice, not a Projectr primitive. The core defines:
 
 ```text
 KnowledgeEnricher.enrich(source + transcript + knowledge map) -> KnowledgeEnrichment
@@ -42,6 +42,23 @@ KnowledgeSearcher.search(query + evidence + optional enrichment) -> KnowledgeSea
 `KnowledgeEnrichment` contains portable concepts linked back to the transcript segments and outline topics that support them. The first adapter is deterministic: it turns outline topics and repeated transcript terms into concepts, then ranks direct transcript matches together with concept-linked evidence.
 
 That means the product has an executable enrichment/search path without an embeddings service or LLM. A later embeddings, vector-index, local-model, or hosted-LLM adapter can implement the same ports without changing persisted Projectr artifacts or UI use cases.
+
+## Evidence-bound answers
+
+Question answering is a separate use case from retrieval:
+
+```text
+KnowledgeAnswerer.answer(question + source evidence) -> KnowledgeAnswer
+answerWithEvidence(KnowledgeAnswerer, input) -> validated KnowledgeAnswer
+```
+
+`KnowledgeAnswer` is claim-oriented rather than a free-floating chat string. Every answered claim must name one or more evidence segment IDs. The core admissibility check also requires evidence IDs, exact excerpts, timestamps, topic references, and concept references to resolve inside the currently loaded exploration.
+
+The first answer adapter is deterministic and extractive. It asks the existing `KnowledgeSearcher` for ranked evidence and returns source text as claims. If no evidence is found, it returns `insufficient_evidence` instead of fabricating an answer.
+
+A future LLM adapter may synthesize claim text, but it must pass the same evidence-boundary validation. Model choice therefore does not own provenance or retrieval.
+
+Answers are currently ephemeral derived results; they are not added to `SavedExploration` v1. The persisted artifact remains the source, transcript, map, enrichment, and provider provenance from which answers can be recomputed.
 
 ## Persistence
 
@@ -55,7 +72,7 @@ ExplorationRepository
   remove(id)
 ```
 
-The shared admissibility check rejects enrichment whose source, segment references, or topic references escape the exploration evidence graph. Older v1 snapshots without enrichment remain valid; the new field is optional.
+The shared admissibility check rejects enrichment whose source, segment references, or topic references escape the exploration evidence graph. Older v1 snapshots without enrichment remain valid; the field is optional.
 
 The first implementation uses browser local storage. SQLite, filesystem, IndexedDB, Postgres, DynamoDB, or a remote service can replace it without changing the domain contract.
 
@@ -96,4 +113,4 @@ npm run dev
 npm run test:core
 ```
 
-The test command uses the repository's existing TypeScript dependency and Node and covers the portable core plus transcript, metadata, deterministic knowledge enrichment/search, persistence, and package-interchange behavior.
+The test command uses the repository's existing TypeScript dependency and Node and covers the portable core plus transcript, metadata, deterministic knowledge enrichment/search, evidence-bound answering, persistence, and package-interchange behavior.

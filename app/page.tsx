@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import styles from "./page.module.css";
+import { DeterministicKnowledgeAnswerer } from "../adapters/knowledge/deterministic-answer";
 import {
   DeterministicKnowledgeEnricher,
   DeterministicKnowledgeSearcher,
@@ -11,6 +12,7 @@ import { parseCaptionText } from "../adapters/transcripts/caption-file";
 import {
   PROJECTR_PACKAGE_MEDIA_TYPE,
   DemoTranscriptProvider,
+  answerWithEvidence,
   createProjectrPackage,
   createSavedExploration,
   deriveOutline,
@@ -21,6 +23,7 @@ import {
   serializeProjectrPackage,
   youtubeTimestampUrl,
   type ExplorationSummary,
+  type KnowledgeAnswer,
   type KnowledgeEnrichment,
   type KnowledgeMap,
   type KnowledgeSearchHit,
@@ -34,6 +37,7 @@ const demoTranscriptProvider = new DemoTranscriptProvider();
 const explorationRepository = new BrowserLocalStorageExplorationRepository();
 const knowledgeEnricher = new DeterministicKnowledgeEnricher();
 const knowledgeSearcher = new DeterministicKnowledgeSearcher();
+const knowledgeAnswerer = new DeterministicKnowledgeAnswerer(knowledgeSearcher);
 
 interface LiveTranscriptResponse {
   source?: SourceVideo;
@@ -81,6 +85,8 @@ function projectrFilename(source: SourceVideo): string {
 export default function HomePage() {
   const [url, setUrl] = useState("");
   const [query, setQuery] = useState("");
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<KnowledgeAnswer | null>(null);
   const [source, setSource] = useState<SourceVideo | null>(null);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [knowledgeMap, setKnowledgeMap] = useState<KnowledgeMap | null>(null);
@@ -92,6 +98,7 @@ export default function HomePage() {
   const [activityMessage, setActivityMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [answering, setAnswering] = useState(false);
 
   const currentSavedId = source ? explorationIdFor(source) : null;
   const currentIsSaved = currentSavedId
@@ -100,6 +107,10 @@ export default function HomePage() {
   const conceptById = useMemo(
     () => new Map((enrichment?.concepts ?? []).map((concept) => [concept.id, concept])),
     [enrichment],
+  );
+  const answerEvidenceById = useMemo(
+    () => new Map((answer?.evidence ?? []).map((evidence) => [evidence.segmentId, evidence])),
+    [answer],
   );
   const visibleConcepts = useMemo(() => {
     const concepts = enrichment?.concepts ?? [];
@@ -186,6 +197,8 @@ export default function HomePage() {
     setProviderLabel(label);
     setActivityMessage(null);
     setQuery("");
+    setQuestion("");
+    setAnswer(null);
   }
 
   async function applySavedExploration(saved: SavedExploration, message: string): Promise<void> {
@@ -200,6 +213,8 @@ export default function HomePage() {
     setMetadataMessage(null);
     setActivityMessage(message);
     setQuery("");
+    setQuestion("");
+    setAnswer(null);
   }
 
   function clearResult(): void {
@@ -210,6 +225,9 @@ export default function HomePage() {
     setHits([]);
     setProviderLabel(null);
     setActivityMessage(null);
+    setQuery("");
+    setQuestion("");
+    setAnswer(null);
   }
 
   function currentSnapshot(savedAt: string): SavedExploration {
@@ -240,6 +258,30 @@ export default function HomePage() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+
+  async function askVideo(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!source || !knowledgeMap || !question.trim()) return;
+
+    setError(null);
+    setAnswering(true);
+    try {
+      const nextAnswer = await answerWithEvidence(knowledgeAnswerer, {
+        sourceId: source.sourceId,
+        question,
+        transcriptSegments: segments,
+        knowledgeMap,
+        enrichment: enrichment ?? undefined,
+        maxEvidence: 3,
+      });
+      setAnswer(nextAnswer);
+    } catch (caught) {
+      setAnswer(null);
+      setError(caught instanceof Error ? caught.message : "Unable to answer from this source.");
+    } finally {
+      setAnswering(false);
+    }
   }
 
   async function exploreLive(): Promise<void> {
@@ -402,7 +444,7 @@ export default function HomePage() {
         <div>
           <p className={styles.eyebrow}>Projectr / YouTube Knowledge Explorer</p>
           <h1>Turn a long video into navigable knowledge.</h1>
-          <p className={styles.lede}>Start with the source. Preserve timestamps. Search exact evidence and concept-linked context before choosing any AI provider.</p>
+          <p className={styles.lede}>Start with the source. Preserve timestamps. Search evidence, inspect concepts, and ask questions whose claims stay bound to the transcript.</p>
         </div>
         <span className={styles.prototypeBadge}>Portable core + adapters</span>
       </header>
@@ -425,7 +467,7 @@ export default function HomePage() {
               <input type="file" accept=".vtt,.srt,text/vtt,application/x-subrip,text/plain" onChange={importCaptions} disabled={loading} style={{ marginLeft: 8 }} />
             </label>
           </div>
-          <p>Projectr does not scrape the YouTube watch page. Acquisition, metadata, enrichment, search, persistence, and interchange remain replaceable boundaries.</p>
+          <p>Projectr does not scrape the YouTube watch page. Acquisition, metadata, enrichment, retrieval, answering, persistence, and interchange remain replaceable boundaries.</p>
           {error ? <p className={styles.error} role="alert">{error}</p> : null}
         </div>
       </section>
@@ -479,6 +521,38 @@ export default function HomePage() {
           </section>
           {metadataMessage ? <p className={styles.metadataMessage} role="status">Metadata: {metadataMessage}</p> : null}
           {activityMessage ? <p className={styles.activityMessage} role="status">{activityMessage}</p> : null}
+
+          <section className={styles.askPanel} aria-labelledby="ask-heading">
+            <div className={styles.panelHeading}>
+              <div><p className={styles.panelKicker}>Evidence-bound answer</p><h2 id="ask-heading">Ask this video</h2></div>
+              <span>deterministic extractive v1</span>
+            </div>
+            <form className={styles.askForm} onSubmit={askVideo}>
+              <input value={question} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuestion(event.target.value)} placeholder="What does the source say about...?" aria-label="Question about this video" />
+              <button type="submit" disabled={answering || !question.trim()}>{answering ? "Checking evidence..." : "Ask"}</button>
+            </form>
+            <p className={styles.askNote}>The baseline never invents prose: every claim is extracted from a ranked transcript segment and must pass the core evidence-boundary validator. A future LLM may synthesize claims behind the same contract.</p>
+            {answer ? (
+              answer.status === "answered" ? (
+                <div className={styles.answerCard}>
+                  <div className={styles.answerHeader}><strong>Answer from source evidence</strong><span>{answer.evidence.length} evidence segment{answer.evidence.length === 1 ? "" : "s"}</span></div>
+                  <ol className={styles.answerClaims}>
+                    {answer.claims.map((claim) => (
+                      <li key={claim.id}>
+                        <p>{claim.text}</p>
+                        <div className={styles.answerEvidenceLinks}>
+                          {claim.evidenceSegmentIds.map((segmentId) => {
+                            const evidence = answerEvidenceById.get(segmentId);
+                            return evidence ? <a key={segmentId} href={youtubeTimestampUrl(source, evidence.startSeconds)} target="_blank" rel="noreferrer">Evidence {formatTimestamp(evidence.startSeconds)}</a> : null;
+                          })}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : <p className={styles.insufficientAnswer}>Projectr found insufficient transcript evidence to answer that question without inventing support.</p>
+            ) : null}
+          </section>
 
           <section className={styles.workspace}>
             <aside className={styles.outlinePanel} aria-labelledby="outline-heading">
@@ -534,8 +608,8 @@ export default function HomePage() {
         </>
       ) : (
         <section className={styles.emptyState}>
-          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition, metadata, enrichment, search, persistence, and interchange mechanisms.</h2></div>
-          <ul><li>Official source metadata behind `SourceMetadataProvider`</li><li>Official OAuth captions or local VTT/SRT import</li><li>Portable concepts behind `KnowledgeEnricher`</li><li>Replaceable retrieval behind `KnowledgeSearcher`</li><li>Browser-local persistence behind `ExplorationRepository`</li><li>Versioned Projectr JSON packages for external consumers such as CorpusForge</li></ul>
+          <div><p className={styles.panelKicker}>Adapter boundaries intact</p><h2>One knowledge model, multiple acquisition, metadata, enrichment, retrieval, answering, persistence, and interchange mechanisms.</h2></div>
+          <ul><li>Official source metadata behind `SourceMetadataProvider`</li><li>Official OAuth captions or local VTT/SRT import</li><li>Portable concepts behind `KnowledgeEnricher`</li><li>Replaceable retrieval behind `KnowledgeSearcher`</li><li>Evidence-bound claims behind `KnowledgeAnswerer`</li><li>Browser-local persistence behind `ExplorationRepository`</li><li>Versioned Projectr JSON packages for external consumers such as CorpusForge</li></ul>
         </section>
       )}
     </main>

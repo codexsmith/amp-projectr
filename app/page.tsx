@@ -17,6 +17,7 @@ import {
   createSavedExploration,
   deriveOutline,
   explorationIdFor,
+  isKnowledgeAnswerAdmissible,
   normalizeTranscript,
   parseProjectrPackage,
   parseYouTubeUrl,
@@ -37,7 +38,7 @@ const demoTranscriptProvider = new DemoTranscriptProvider();
 const explorationRepository = new BrowserLocalStorageExplorationRepository();
 const knowledgeEnricher = new DeterministicKnowledgeEnricher();
 const knowledgeSearcher = new DeterministicKnowledgeSearcher();
-const knowledgeAnswerer = new DeterministicKnowledgeAnswerer(knowledgeSearcher);
+const deterministicAnswerer = new DeterministicKnowledgeAnswerer(knowledgeSearcher);
 
 interface LiveTranscriptResponse {
   source?: SourceVideo;
@@ -47,6 +48,13 @@ interface LiveTranscriptResponse {
 
 interface MetadataResponse {
   source?: SourceVideo;
+  error?: { code?: string; message?: string };
+}
+
+interface HostedAnswerResponse {
+  answer?: KnowledgeAnswer;
+  provider?: string;
+  model?: string;
   error?: { code?: string; message?: string };
 }
 
@@ -87,6 +95,7 @@ export default function HomePage() {
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<KnowledgeAnswer | null>(null);
+  const [answerMode, setAnswerMode] = useState<string | null>(null);
   const [source, setSource] = useState<SourceVideo | null>(null);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [knowledgeMap, setKnowledgeMap] = useState<KnowledgeMap | null>(null);
@@ -199,6 +208,7 @@ export default function HomePage() {
     setQuery("");
     setQuestion("");
     setAnswer(null);
+    setAnswerMode(null);
   }
 
   async function applySavedExploration(saved: SavedExploration, message: string): Promise<void> {
@@ -215,6 +225,7 @@ export default function HomePage() {
     setQuery("");
     setQuestion("");
     setAnswer(null);
+    setAnswerMode(null);
   }
 
   function clearResult(): void {
@@ -228,6 +239,7 @@ export default function HomePage() {
     setQuery("");
     setQuestion("");
     setAnswer(null);
+    setAnswerMode(null);
   }
 
   function currentSnapshot(savedAt: string): SavedExploration {
@@ -264,20 +276,45 @@ export default function HomePage() {
     event.preventDefault();
     if (!source || !knowledgeMap || !question.trim()) return;
 
+    const input = {
+      sourceId: source.sourceId,
+      question,
+      transcriptSegments: segments,
+      knowledgeMap,
+      enrichment: enrichment ?? undefined,
+      maxEvidence: 3,
+    };
+
     setError(null);
     setAnswering(true);
+    setAnswerMode(null);
     try {
-      const nextAnswer = await answerWithEvidence(knowledgeAnswerer, {
-        sourceId: source.sourceId,
-        question,
-        transcriptSegments: segments,
-        knowledgeMap,
-        enrichment: enrichment ?? undefined,
-        maxEvidence: 3,
+      const response = await fetch("/api/answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       });
-      setAnswer(nextAnswer);
+      const payload = await response.json() as HostedAnswerResponse;
+
+      if (response.ok && payload.answer) {
+        if (!isKnowledgeAnswerAdmissible(payload.answer, input)) {
+          throw new Error("Hosted answer failed the local Projectr evidence-boundary check.");
+        }
+        setAnswer(payload.answer);
+        setAnswerMode(`OpenAI Responses · ${payload.model ?? "configured model"}`);
+        return;
+      }
+
+      if (payload.error?.code !== "answer_not_configured") {
+        throw new Error(payload.error?.message ?? "Hosted answer provider failed.");
+      }
+
+      const fallback = await answerWithEvidence(deterministicAnswerer, input);
+      setAnswer(fallback);
+      setAnswerMode("Deterministic extractive fallback");
     } catch (caught) {
       setAnswer(null);
+      setAnswerMode(null);
       setError(caught instanceof Error ? caught.message : "Unable to answer from this source.");
     } finally {
       setAnswering(false);
@@ -525,13 +562,13 @@ export default function HomePage() {
           <section className={styles.askPanel} aria-labelledby="ask-heading">
             <div className={styles.panelHeading}>
               <div><p className={styles.panelKicker}>Evidence-bound answer</p><h2 id="ask-heading">Ask this video</h2></div>
-              <span>deterministic extractive v1</span>
+              <span>{answerMode ?? "hosted synthesis when configured"}</span>
             </div>
             <form className={styles.askForm} onSubmit={askVideo}>
               <input value={question} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuestion(event.target.value)} placeholder="What does the source say about...?" aria-label="Question about this video" />
               <button type="submit" disabled={answering || !question.trim()}>{answering ? "Checking evidence..." : "Ask"}</button>
             </form>
-            <p className={styles.askNote}>The baseline never invents prose: every claim is extracted from a ranked transcript segment and must pass the core evidence-boundary validator. A future LLM may synthesize claims behind the same contract.</p>
+            <p className={styles.askNote}>When the server has an OpenAI key, Projectr retrieves bounded evidence first and the hosted model may synthesize only claim text against that evidence. Projectr reconstructs source excerpts and validates the result again before display. Without hosted configuration, the deterministic extractive answerer remains available.</p>
             {answer ? (
               answer.status === "answered" ? (
                 <div className={styles.answerCard}>

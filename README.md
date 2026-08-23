@@ -12,7 +12,7 @@ Portable JSON contracts live in `contracts/projectr`. Executable domain logic li
 
 ## Current vertical slice
 
-Implemented behavior includes YouTube URL parsing, portable source metadata, transcript normalization/exact search, deterministic outline generation, portable concept enrichment, concept-linked evidence retrieval, evidence-bound question answering, timestamp navigation, official authorized-caption acquisition, VTT/SRT import, browser-local persistence, and versioned Projectr package import/export.
+Implemented behavior includes YouTube URL parsing, portable source metadata, transcript normalization/exact search, deterministic outline generation, portable concept enrichment, concept-linked evidence retrieval, evidence-bound question answering, hosted OpenAI synthesis behind the same answer port, timestamp navigation, official authorized-caption acquisition, VTT/SRT import, browser-local persistence, and versioned Projectr package import/export.
 
 ## Source metadata
 
@@ -41,7 +41,7 @@ KnowledgeSearcher.search(query + evidence + optional enrichment) -> KnowledgeSea
 
 `KnowledgeEnrichment` contains portable concepts linked back to the transcript segments and outline topics that support them. The first adapter is deterministic: it turns outline topics and repeated transcript terms into concepts, then ranks direct transcript matches together with concept-linked evidence.
 
-That means the product has an executable enrichment/search path without an embeddings service or LLM. A later embeddings, vector-index, local-model, or hosted-LLM adapter can implement the same ports without changing persisted Projectr artifacts or UI use cases.
+That gives Projectr an executable enrichment/search path without requiring an embeddings service or LLM. Embedding, vector-index, local-model, or hosted-model adapters can implement the same ports without changing persisted Projectr artifacts or use cases.
 
 ## Evidence-bound answers
 
@@ -52,13 +52,29 @@ KnowledgeAnswerer.answer(question + source evidence) -> KnowledgeAnswer
 answerWithEvidence(KnowledgeAnswerer, input) -> validated KnowledgeAnswer
 ```
 
-`KnowledgeAnswer` is claim-oriented rather than a free-floating chat string. Every answered claim must name one or more evidence segment IDs. The core admissibility check also requires evidence IDs, exact excerpts, timestamps, topic references, and concept references to resolve inside the currently loaded exploration.
+`KnowledgeAnswer` is claim-oriented rather than a free-floating chat string. Every answered claim must name one or more evidence segment IDs. The core admissibility check requires evidence IDs, exact excerpts, timestamps, topic references, and concept references to resolve inside the currently loaded exploration.
 
-The first answer adapter is deterministic and extractive. It asks the existing `KnowledgeSearcher` for ranked evidence and returns source text as claims. If no evidence is found, it returns `insufficient_evidence` instead of fabricating an answer.
+Two answer adapters implement the same port:
 
-A future LLM adapter may synthesize claim text, but it must pass the same evidence-boundary validation. Model choice therefore does not own provenance or retrieval.
+- `DeterministicKnowledgeAnswerer` returns ranked source excerpts directly as claims.
+- `OpenAIResponsesKnowledgeAnswerer` retrieves candidate evidence first, sends only that bounded evidence to the OpenAI Responses API, and lets the model synthesize claim text plus references to candidate segment IDs.
 
-Answers are currently ephemeral derived results; they are not added to `SavedExploration` v1. The persisted artifact remains the source, transcript, map, enrichment, and provider provenance from which answers can be recomputed.
+The hosted adapter does **not** accept model-authored excerpts, timestamps, topic IDs, or concept IDs. Projectr reconstructs those fields from its own retrieval results and then runs the complete result through `answerWithEvidence`. A model response that cites a segment outside the retrieved candidate set is rejected.
+
+The server route is `POST /api/answer`. It reads `OPENAI_API_KEY` server-side only; the key never crosses into browser code. `PROJECTR_OPENAI_MODEL` controls model selection and currently defaults to `gpt-5.6-luna`. Requests use strict JSON-schema Structured Outputs and set `store: false`.
+
+The browser tries hosted synthesis first and independently runs `isKnowledgeAnswerAdmissible` before displaying a hosted answer. If the server explicitly reports that hosted answering is not configured, the UI falls back to the deterministic extractive answerer. Other provider failures are surfaced rather than silently hidden by fallback behavior.
+
+Answers remain ephemeral derived results; they are not added to `SavedExploration` v1. The persisted artifact remains the source, transcript, map, enrichment, and provider provenance from which answers can be recomputed.
+
+## Environment
+
+`.env.example` lists the supported server-side variables. For local development, put your actual secret in an ignored environment file such as `.env.local`; never use a `NEXT_PUBLIC_*` name for the OpenAI key.
+
+```text
+OPENAI_API_KEY=...
+PROJECTR_OPENAI_MODEL=gpt-5.6-luna
+```
 
 ## Persistence
 
@@ -90,8 +106,6 @@ ProjectrPackage
 
 `core/projectr/export.ts` creates, serializes, parses, and validates this package. Import uses the same `isSavedExploration` admissibility check as persistence, including source coherence, topic references to known transcript segments, and enrichment references to known evidence.
 
-The browser UI can export the loaded exploration or any locally saved exploration and can import a package without automatically persisting it.
-
 CorpusForge is an external consumer of this boundary, not part of the Projectr model:
 
 ```text
@@ -113,4 +127,4 @@ npm run dev
 npm run test:core
 ```
 
-The test command uses the repository's existing TypeScript dependency and Node and covers the portable core plus transcript, metadata, deterministic knowledge enrichment/search, evidence-bound answering, persistence, and package-interchange behavior.
+The test command covers the portable core plus transcript, metadata, deterministic knowledge enrichment/search, evidence-bound answering, the OpenAI Responses adapter with mocked HTTP, persistence, and package-interchange behavior.

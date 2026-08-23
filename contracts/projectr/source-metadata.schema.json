@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boundaryfirstlabs.org/contracts/projectr/source-metadata.schema.json",
+  "title": "Projectr SourceMetadata",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string" },
+    "creatorName": { "type": "string" },
+    "durationSeconds": { "type": "number", "minimum": 0 },
+    "thumbnailUrl": { "type": "string", "format": "uri" },
+    "publishedAt": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "knowledge-answer.schema.json",
+  "title": "KnowledgeAnswer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sourceId", "question", "status", "claims", "evidence", "generatedBy"],
+  "properties": {
+    "sourceId": { "type": "string", "minLength": 1 },
+    "question": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["answered", "insufficient_evidence"] },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text", "evidenceSegmentIds"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "evidenceSegmentIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["segmentId", "startSeconds", "endSeconds", "excerpt", "score", "matchedTerms", "matchedConceptIds", "topicIds"],
+        "properties": {
+          "segmentId": { "type": "string", "minLength": 1 },
+          "startSeconds": { "type": "number", "minimum": 0 },
+          "endSeconds": { "type": "number", "minimum": 0 },
+          "excerpt": { "type": "string", "minLength": 1 },
+          "score": { "type": "number", "minimum": 0 },
+          "matchedTerms": { "type": "array", "items": { "type": "string" } },
+          "matchedConceptIds": { "type": "array", "items": { "type": "string" } },
+          "topicIds": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "generatedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator"],
+      "properties": {
+        "generator": { "type": "string", "minLength": 1 },
+        "version": { "type": "string" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "answered" } } },
+      "then": {
+        "properties": {
+          "claims": { "minItems": 1 },
+          "evidence": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "insufficient_evidence" } } },
+      "then": {
+        "properties": {
+          "claims": { "maxItems": 0 },
+          "evidence": { "maxItems": 0 }
+        }
+      }
+    }
+  ]
+}

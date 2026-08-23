@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boundaryfirstlabs.org/contracts/projectr/knowledge-map.schema.json",
+  "title": "Projectr KnowledgeMap",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sourceId", "topics"],
+  "properties": {
+    "sourceId": { "type": "string", "minLength": 1 },
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "startSeconds", "endSeconds", "segmentIds", "keywords"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "startSeconds": { "type": "number", "minimum": 0 },
+          "endSeconds": { "type": "number", "minimum": 0 },
+          "segmentIds": { "type": "array", "items": { "type": "string" } },
+          "keywords": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

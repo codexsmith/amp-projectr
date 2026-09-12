@@ -235,7 +235,9 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: parsed.canonicalUrl }),
       });
-      const payload = await response.json() as MetadataResponse;
+      const payload = response.headers.get("content-type")?.includes("application/json")
+        ? await response.json() as MetadataResponse
+        : {};
       if (!response.ok || !payload.source) {
         setMetadataMessage(
           payload.error?.message ?? "Source details are unavailable; transcript processing can continue.",
@@ -382,6 +384,11 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
       });
+      if ([404, 405].includes(response.status) || !response.headers.get("content-type")?.includes("application/json")) {
+        setAnswer(await answerWithEvidence(deterministicAnswerer, input));
+        setAnswerMode("Source-only deterministic answer");
+        return;
+      }
       const payload = await response.json() as HostedAnswerResponse;
       if (response.ok && payload.answer) {
         if (!isKnowledgeAnswerAdmissible(payload.answer, input)) throw new Error("Hosted answer failed the local Projectr evidence check.");
@@ -413,7 +420,9 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: parsed.canonicalUrl, preferredLanguages: ["en"] }),
       });
-      const payload = await response.json() as LiveTranscriptResponse;
+      const payload = response.headers.get("content-type")?.includes("application/json")
+        ? await response.json() as LiveTranscriptResponse
+        : {};
       if (!response.ok || !payload.cues) throw new Error(payload.error?.message ?? "Unable to obtain captions from the configured live provider.");
       await applyTranscript(enriched, payload.cues, "Authorized YouTube captions", "live");
     } catch (caught) {

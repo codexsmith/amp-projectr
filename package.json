@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/next-dev.mjs",
-    "build": "next build",
+    "build": "node scripts/build.mjs",
     "start": "next start",
     "lint": "next lint",
     "test:core": "tsc -p tsconfig.core-tests.json && node .projectr-test-build/tests/core/projectr.test.js && node .projectr-test-build/tests/core/export.test.js && node .projectr-test-build/tests/adapters/transcripts.test.js && node .projectr-test-build/tests/adapters/metadata.test.js && node .projectr-test-build/tests/adapters/knowledge.test.js && node .projectr-test-build/tests/adapters/answer.test.js && node .projectr-test-build/tests/adapters/openai-answer.test.js && node .projectr-test-build/tests/adapters/persistence.test.js"

@@ -1,6 +1,7 @@
 name: Vercel Port Verify
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - deploy/vercel-port

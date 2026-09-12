@@ -3,7 +3,7 @@ import "./app.css";
 
 export const metadata: Metadata = {
   title: "Projectr / YouTube Knowledge Explorer",
-  description: "Turn long-form YouTube sources into searchable transcripts and navigable knowledge maps.",
+  description: "Turn a long video into navigable, searchable, timestamped knowledge whose answers stay tied to source evidence.",
 };
 
 export default function RootLayout({
